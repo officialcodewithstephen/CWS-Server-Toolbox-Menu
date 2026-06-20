@@ -1,0 +1,5 @@
+*.log
+*.dm_13
+*.dm_13.json
+demos/
+IW4MAdmin/Configuration/
