@@ -89,7 +89,7 @@ The menu uses server-side GSC, IW4MAdmin events, DVARs, and RCON. It does not sc
 
 ## Version
 
-`0.20.4`
+`0.20.5`
 
 ## Third-Party Code
 
