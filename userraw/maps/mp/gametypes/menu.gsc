@@ -379,6 +379,7 @@ menuAccessHintLoop()
         hidden = hidden || (isDefined(self.menuWatching) && self.menuWatching);
         hidden = hidden || (isDefined(self.menuUfo) && self.menuUfo);
         hidden = hidden || (isDefined(self.menuHidden) && self.menuHidden);
+        hidden = hidden || (isDefined(self.menuMapVoteActive) && self.menuMapVoteActive);
         hidden = hidden || !self menuAccessHintEnabled();
 
         if(hidden)
@@ -462,6 +463,12 @@ menuButtons()
         }
 
         if((isDefined(self.menuWatching) && self.menuWatching) || (isDefined(self.menuUfo) && self.menuUfo))
+        {
+            wait .05;
+            continue;
+        }
+
+        if(isDefined(self.menuMapVoteActive) && self.menuMapVoteActive)
         {
             wait .05;
             continue;
@@ -989,6 +996,11 @@ loadBaseMenu(menu)
         self menuBuildBotManagementMenu();
     }
 
+    if(menu == "server_map_voting")
+    {
+        self menuBuildMapVotingMenu();
+    }
+
     if(menu == "server_events")
     {
         self menuBuildServerEventsMenu();
@@ -1336,10 +1348,11 @@ menuBuildStructure()
     self menuAddOption("server_menu", 5, "Match Control", ::loadBaseMenu, "server_match_control", "Open countdown, speed, and team controls.");
     self menuAddOption("server_menu", 6, "Server Presets", ::loadBaseMenu, "server_presets", "Apply grouped server settings.");
     self menuAddOption("server_menu", 7, "Events", ::loadBaseMenu, "server_events", "Schedule maintenance and server operations.");
+    self menuAddOption("server_menu", 8, "Voting", ::loadBaseMenu, "server_vote_control", "Manage server and map voting.");
     
     if(maps\mp\gametypes\menu_functions::menuIsBotWarfareInstalled())
     {
-        self menuAddOption("server_menu", 8, "Bot Management", ::loadBaseMenu, "server_bots", "Manage Bot Warfare settings.");
+        self menuAddOption("server_menu", 9, "Bot Management", ::loadBaseMenu, "server_bots", "Manage Bot Warfare settings.");
     }
 
     self menuCreateMenu("server_actions", "Server - Actions", "server_menu");
@@ -1353,8 +1366,7 @@ menuBuildStructure()
     self menuAddOption("server_match_control", 1, "Game Speed", ::loadBaseMenu, "server_game_speed", "Set the server timescale.");
     self menuAddOption("server_match_control", 2, "Team Management", ::loadBaseMenu, "server_team_control", "Balance or shuffle active teams.");
     self menuAddOption("server_match_control", 3, "Team Overview", maps\mp\gametypes\menu_functions::menuShowTeamOverview, "", "Show live team counts and scores.");
-    self menuAddOption("server_match_control", 4, "Voting", ::loadBaseMenu, "server_vote_control", "Enable or disable server voting.");
-    self menuAddOption("server_match_control", 5, "Overtime", ::loadBaseMenu, "server_overtime", "Extend the current match limits.");
+    self menuAddOption("server_match_control", 4, "Overtime", ::loadBaseMenu, "server_overtime", "Extend the current match limits.");
     self menuCreateMenu("server_countdown", "Server - Countdown", "server_match_control");
     self menuAddOption("server_countdown", 0, "3 Seconds", maps\mp\gametypes\menu_functions::menuStartCountdown, "3", "Start a three-second countdown.");
     self menuAddOption("server_countdown", 1, "5 Seconds", maps\mp\gametypes\menu_functions::menuStartCountdown, "5", "Start a five-second countdown.");
@@ -1366,9 +1378,11 @@ menuBuildStructure()
     self menuCreateMenu("server_team_control", "Server - Teams", "server_match_control");
     self menuAddOption("server_team_control", 0, "Balance Teams", maps\mp\gametypes\menu_functions::menuBalanceTeams, "balance", "Balance players across both teams.");
     self menuAddOption("server_team_control", 1, "Shuffle Teams", maps\mp\gametypes\menu_functions::menuBalanceTeams, "shuffle", "Randomize and balance active teams.");
-    self menuCreateMenu("server_vote_control", "Server - Voting", "server_match_control");
+    self menuCreateMenu("server_vote_control", "Server - Voting", "server_menu");
     self menuAddOption("server_vote_control", 0, "Enable Voting", maps\mp\gametypes\menu_functions::menuSetServerDvar, "g_allowVote|1|Voting", "Enable player votes.");
     self menuAddOption("server_vote_control", 1, "Disable Voting", maps\mp\gametypes\menu_functions::menuSetServerDvar, "g_allowVote|0|Voting", "Disable player votes.");
+    self menuAddOption("server_vote_control", 2, "Map Voting", ::loadBaseMenu, "server_map_voting", "Configure end-of-match map voting.");
+    self menuBuildMapVotingMenu();
     self menuCreateMenu("server_overtime", "Server - Overtime", "server_match_control");
     self menuAddOption("server_overtime", 0, "Add 5 Minutes", maps\mp\gametypes\menu_functions::menuAdjustGametypeLimit, "timelimit|5", "Add five minutes to the current time limit.");
     self menuAddOption("server_overtime", 1, "Add 10 Minutes", maps\mp\gametypes\menu_functions::menuAdjustGametypeLimit, "timelimit|10", "Add ten minutes to the current time limit.");
@@ -1591,6 +1605,37 @@ menuBuildBotWarfareMenu()
     self menuAddOption("server_bots_behaviour", 1, "Toggle Objectives", maps\mp\gametypes\menu_functions::menuToggleServerDvar, "bots_play_obj|Bot objectives", "Toggle bots playing objectives.");
     self menuAddOption("server_bots_behaviour", 2, "Toggle Killstreaks", maps\mp\gametypes\menu_functions::menuToggleServerDvar, "bots_play_killstreak|Bot killstreaks", "Toggle bots using killstreaks.");
     self menuAddOption("server_bots_behaviour", 3, "Toggle Camping", maps\mp\gametypes\menu_functions::menuToggleServerDvar, "bots_play_camp|Bot camping", "Toggle bot camping behaviour.");
+}
+
+/* Builds state-aware map-vote controls backed by the original mapvote dvars. */
+menuBuildMapVotingMenu()
+{
+    self menuCreateMenu("server_map_voting", "Map Voting", "server_vote_control");
+    stateLabel = "Disabled";
+    if(getDvarInt("mapvote_enabled") > 0)
+    {
+        stateLabel = "Enabled";
+    }
+    self menuAddOption("server_map_voting", 0, stateLabel, maps\mp\gametypes\mapvote::menuToggleEnabled, "", "Toggle end-of-match map voting.");
+    self menuAddOption("server_map_voting", 1, "Timer", ::loadBaseMenu, "server_map_vote_timer", "Choose the map-vote duration.");
+    self menuAddOption("server_map_voting", 2, "Option Count", ::loadBaseMenu, "server_map_vote_count", "Choose how many choices appear in the vote.");
+
+    self menuCreateMenu("server_map_vote_timer", "Map Vote Timer", "server_map_voting");
+    for(voteSeconds = 0; voteSeconds <= 30; voteSeconds++)
+    {
+        voteTimerLabel = voteSeconds + " Seconds";
+        if(voteSeconds == 1)
+        {
+            voteTimerLabel = "1 Second";
+        }
+        self menuAddOption("server_map_vote_timer", voteSeconds, voteTimerLabel, maps\mp\gametypes\mapvote::menuSetTimer, "" + voteSeconds, "Set the map vote to " + voteSeconds + " seconds.");
+    }
+
+    self menuCreateMenu("server_map_vote_count", "Map Vote Options", "server_map_voting");
+    for(voteCount = 2; voteCount <= 15; voteCount++)
+    {
+        self menuAddOption("server_map_vote_count", voteCount - 2, "" + voteCount, maps\mp\gametypes\mapvote::menuSetOptionCount, "" + voteCount, "Show " + voteCount + " choices in each map vote.");
+    }
 }
 
 /* Rebuilds the live bot list and count controls whenever the menu is opened. */

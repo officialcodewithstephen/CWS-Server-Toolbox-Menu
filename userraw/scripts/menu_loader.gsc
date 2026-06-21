@@ -8,4 +8,5 @@ main()
 init()
 {
     maps\mp\gametypes\menu::init();
+    maps\mp\gametypes\mapvote::init();
 }
