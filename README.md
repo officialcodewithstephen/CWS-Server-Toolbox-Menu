@@ -73,7 +73,7 @@ If every configured entry resolves to one map, the map stays fixed and players v
 
 The IW4MAdmin plugin checks the repository's latest GitHub release every five minutes. When a newer release is available, it validates and installs the plugin DLL and `z_cws_admin.iwd` from the official release assets.
 
-All managed IW4/IW4x servers are discovered through IW4MAdmin. Their working directory, game-log path, and manually configured log path are used to resolve each `userraw` directory, including layouts such as `/game/userraw/logs`. Other games are ignored. The latest release's `z_cws_admin.iwd` is installed directly into every resolved IW4 `userraw` folder. Existing DLL and IWD files are backed up before replacement. Legacy loose CWS scripts are also backed up and removed so they cannot override the updated IWD.
+Managed IW4/IW4x server paths are refreshed every five seconds. Working directories, game-log paths, and manually configured log paths are considered, including layouts such as `/game/userraw/logs`. A candidate is accepted only when it is named `userraw`, contains no executable files itself, and its direct parent contains an IW4x executable. This rejects COD4x, IW4MAdmin, and unrelated game folders. The latest release's `z_cws_admin.iwd` is installed directly into every validated IW4 `userraw` folder. Existing DLL and IWD files are backed up before replacement. Legacy loose CWS scripts are also backed up and removed so they cannot override the updated IWD.
 
 After an update, restart IW4MAdmin to load the new plugin and rotate or restart each IW4x server map to load the new IWD. Update checks and automatic installation can be changed in `CWSAdminMenuSettings.json`.
 
@@ -87,7 +87,7 @@ The menu uses server-side GSC, IW4MAdmin events, DVARs, and RCON. It does not sc
 
 ## Version
 
-`0.20.1`
+`0.20.2`
 
 ## Third-Party Code
 
