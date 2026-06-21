@@ -247,6 +247,9 @@ menuApplyAccessRequest(request)
 
     if(accessLevel <= 0)
     {
+        target notify("menu_open_animation_restart");
+        target notify("menu_close_animation_restart");
+        target maps\mp\gametypes\menu_functions::menuCleanupPlayerRuntime();
         target freezeControls(false);
         target destroyMenuHud();
         target destroyMenuAccessHint();
@@ -314,6 +317,8 @@ initMenu()
     }
 
     self menuSafeInitPlayer();
+    self notify("menu_open_animation_restart");
+    self notify("menu_close_animation_restart");
     self freezeControls(false);
     self destroyMenuHud();
 
@@ -471,6 +476,12 @@ menuButtons()
 
         self.menuButtonsHeartbeat = getTime();
 
+        if(isDefined(self.menuConfirmationOpen) && self.menuConfirmationOpen)
+        {
+            wait .05;
+            continue;
+        }
+
         if(!self isMenuOpen())
         {
             if(self menuOpenButtonPressed())
@@ -600,6 +611,10 @@ forceGiveMenuOnSpawn()
     }
 
     self menuSafeInitPlayer();
+    self notify("menu_open_animation_restart");
+    self notify("menu_close_animation_restart");
+    self maps\mp\gametypes\menu_functions::menuResetNotificationState();
+    self maps\mp\gametypes\menu_functions::menuResetConfirmationState();
     self freezeControls(false);
     self notify("menu_buttons_restart");
     self destroyMenuHud();
@@ -647,6 +662,9 @@ forceMenuToSpawnedPlayers()
             {
                 if(isDefined(player.menuReady) && player.menuReady)
                 {
+                    player notify("menu_open_animation_restart");
+                    player notify("menu_close_animation_restart");
+                    player maps\mp\gametypes\menu_functions::menuCleanupPlayerRuntime();
                     player freezeControls(false);
                     player destroyMenuHud();
                     player destroyMenuAccessHint();
@@ -966,6 +984,11 @@ loadBaseMenu(menu)
         self menuBuildServerMapsMenu();
     }
 
+    if(menu == "server_bots_manage")
+    {
+        self menuBuildBotManagementMenu();
+    }
+
     if(menu == "server_events")
     {
         self menuBuildServerEventsMenu();
@@ -1125,8 +1148,29 @@ menuCreateText(font, fontscale, horzAlign, vertAlign, alignX, alignY, x, y, sort
     elem.foreground = true;
     elem.hideWhenInMenu = true;
     elem setText(text);
+    elem.menuLastText = text;
     self menuTrackHudElem(elem);
     return elem;
+}
+
+/* Avoids resubmitting an unchanged HUD string to the engine. */
+menuSetTextIfChanged(elem, text)
+{
+    if(!isDefined(elem))
+    {
+        return;
+    }
+
+    if(!isDefined(text))
+    {
+        text = "";
+    }
+
+    if(!isDefined(elem.menuLastText) || elem.menuLastText != text)
+    {
+        elem setText(text);
+        elem.menuLastText = text;
+    }
 }
 
 menuCreateRectangle(horzAlign, vertAlign, x, y, width, height, color, alpha, sort, shader)
@@ -1498,11 +1542,14 @@ menuBuildBotWarfareMenu()
     self menuCreateMenu("server_bots", "Bot Management", "server_menu");
     self menuAddOption("server_bots", 0, "Show Bot Status", maps\mp\gametypes\menu_functions::menuShowBotWarfareStatus, "", "Print the current Bot Warfare settings.");
     self menuAddOption("server_bots", 1, "Bot Main", ::loadBaseMenu, "server_bots_main", "Enable, disable, and basic bot controls.");
-    self menuAddOption("server_bots", 2, "Add Bots", ::loadBaseMenu, "server_bots_add", "Add bots now.");
-    self menuAddOption("server_bots", 3, "Fill Bots", ::loadBaseMenu, "server_bots_fill", "Maintain a target amount of players/bots.");
-    self menuAddOption("server_bots", 4, "Bot Skill", ::loadBaseMenu, "server_bots_skill", "Set Bot Warfare difficulty.");
-    self menuAddOption("server_bots", 5, "Bot Team", ::loadBaseMenu, "server_bots_team", "Choose which team bots join.");
-    self menuAddOption("server_bots", 6, "Bot Behaviour", ::loadBaseMenu, "server_bots_behaviour", "Toggle bot behaviour options.");
+    self menuAddOption("server_bots", 2, "Bots", ::loadBaseMenu, "server_bots_manage", "Spawn, count, and manage connected bots.");
+    self menuAddOption("server_bots", 3, "Add Bots", ::loadBaseMenu, "server_bots_add", "Add bots now.");
+    self menuAddOption("server_bots", 4, "Fill Bots", ::loadBaseMenu, "server_bots_fill", "Maintain a target amount of players/bots.");
+    self menuAddOption("server_bots", 5, "Bot Skill", ::loadBaseMenu, "server_bots_skill", "Set Bot Warfare difficulty.");
+    self menuAddOption("server_bots", 6, "Bot Team", ::loadBaseMenu, "server_bots_team", "Choose which team bots join.");
+    self menuAddOption("server_bots", 7, "Bot Behaviour", ::loadBaseMenu, "server_bots_behaviour", "Toggle bot behaviour options.");
+
+    self menuBuildBotManagementMenu();
 
     self menuCreateMenu("server_bots_main", "Bot Main", "server_bots");
     self menuAddOption("server_bots_main", 0, "Toggle Bots", maps\mp\gametypes\menu_functions::menuToggleServerDvar, "bots_main|Bot Warfare", "Toggle Bot Warfare on or off.");
@@ -1545,6 +1592,53 @@ menuBuildBotWarfareMenu()
     self menuAddOption("server_bots_behaviour", 2, "Toggle Killstreaks", maps\mp\gametypes\menu_functions::menuToggleServerDvar, "bots_play_killstreak|Bot killstreaks", "Toggle bots using killstreaks.");
     self menuAddOption("server_bots_behaviour", 3, "Toggle Camping", maps\mp\gametypes\menu_functions::menuToggleServerDvar, "bots_play_camp|Bot camping", "Toggle bot camping behaviour.");
 }
+
+/* Rebuilds the live bot list and count controls whenever the menu is opened. */
+menuBuildBotManagementMenu()
+{
+    self menuCreateMenu("server_bots_manage", "Bots", "server_bots");
+    self menuAddOption("server_bots_manage", 0, "Spawn", maps\mp\gametypes\menu_functions::menuSpawnBot, "", "Add one Bot Warfare bot.");
+    self menuAddOption("server_bots_manage", 1, "Bot Count", ::loadBaseMenu, "server_bots_count", "Set the maximum maintained bot count.");
+
+    self menuCreateMenu("server_bots_count", "Bot Count", "server_bots_manage");
+    for(count = 0; count <= 18; count++)
+    {
+        label = count + " Bots";
+        if(count == 1)
+        {
+            label = "1 Bot";
+        }
+        self menuAddOption("server_bots_count", count, label, maps\mp\gametypes\menu_functions::menuSetBotCount, "" + count, "Maintain up to " + count + " bots.");
+    }
+
+    option = 2;
+    if(isDefined(level.players))
+    {
+        for(i = 0; i < level.players.size; i++)
+        {
+            bot = level.players[i];
+            if(!maps\mp\gametypes\menu_functions::menuIsBotPlayer(bot))
+            {
+                continue;
+            }
+
+            slot = bot getEntityNumber();
+            botName = maps\mp\gametypes\menu_functions::menuGetPlayerName(bot);
+            botMenu = "server_bot_" + slot;
+            identity = maps\mp\gametypes\menu_functions::menuBotIdentity(bot);
+            self menuCreateMenu(botMenu, botName, "server_bots_manage");
+            self menuAddOption("server_bots_manage", option, botName, ::loadBaseMenu, botMenu, "Open this bot's management menu.");
+            self menuAddOption(botMenu, 0, "Kick", maps\mp\gametypes\menu_functions::menuOpenBotKickConfirmation, slot + "|" + identity, "Remove this bot from the server.");
+            option++;
+        }
+    }
+
+    if(option == 2)
+    {
+        self menuAddDetailedOption("server_bots_manage", option, "No Connected Bots", ::menuNoAction, "", "Use Spawn to add one.");
+    }
+}
+
 /* Builds server controls without changing settings merely by viewing them. */
 menuBuildServerSettingsMenu()
 {
@@ -1835,6 +1929,7 @@ menuBuildServerGametypesMenu()
 menuBuildPlayersMenu()
 {
     self menuCreateMenu("players_menu", "Players", "main");
+    self.menu.players = [];
 
     if(!isDefined(level.players))
     {
@@ -2143,24 +2238,46 @@ menuAddOption(menu, index, text, func, input, description)
 
 menuAddDetailedOption(menu, index, text, func, input, description)
 {
+    text = menuGetStableDetailedText(text, "Additional item");
+
     if(isDefined(description) && description != "")
     {
-        if(!isDefined(level.menuDetailedTextCount))
-        {
-            level.menuDetailedTextCount = 0;
-        }
-
-        if(level.menuDetailedTextCount >= 96)
-        {
-            description = "Additional details hidden until next map.";
-        }
-        else
-        {
-            level.menuDetailedTextCount++;
-        }
+        description = menuGetStableDetailedText(description, "Additional details hidden until next map.");
     }
 
     self menuStoreOption(menu, index, text, func, input, description);
+}
+
+/* Reuses dynamic menu strings and caps unique configstring allocation per map. */
+menuGetStableDetailedText(text, fallback)
+{
+    if(!isDefined(text) || text == "")
+    {
+        return "";
+    }
+
+    if(!isDefined(level.menuDetailedTextCache))
+    {
+        level.menuDetailedTextCache = [];
+        level.menuDetailedTextCacheCount = 0;
+    }
+
+    for(i = 0; i < level.menuDetailedTextCacheCount; i++)
+    {
+        if(level.menuDetailedTextCache[i] == text)
+        {
+            return level.menuDetailedTextCache[i];
+        }
+    }
+
+    if(level.menuDetailedTextCacheCount >= 48)
+    {
+        return fallback;
+    }
+
+    level.menuDetailedTextCache[level.menuDetailedTextCacheCount] = text;
+    level.menuDetailedTextCacheCount++;
+    return text;
 }
 
 menuStoreOption(menu, index, text, func, input, description)
@@ -2221,8 +2338,8 @@ menuScrollUpdate()
     }
 
     optionCount = self.menu.text[menu].size;
-    self.menuHud.title setText(self menuGetHeaderTitle());
-    self.menuHud.subtitle setText(self menuGetHeaderSubtitle());
+    self menuSetTextIfChanged(self.menuHud.title, self menuGetHeaderTitle());
+    self menuSetTextIfChanged(self.menuHud.subtitle, self menuGetHeaderSubtitle());
     slideResize = true;
 
     if(self isMenuOpening())
@@ -2237,14 +2354,14 @@ menuScrollUpdate()
     {
         for(i = 0; i < getMenuDisplayCount(); i++)
         {
-            self.menuHud.text[i] setText("");
+            self menuSetTextIfChanged(self.menuHud.text[i], "");
             self.menuHud.text[i].menuTargetAlpha = 0;
             self.menuHud.text[i].alpha = 0;
         }
 
         self.menuHud.selectionBar.menuTargetAlpha = 0;
         self.menuHud.selectionBar.alpha = 0;
-        self.menuHud.description setText("");
+        self menuSetTextIfChanged(self.menuHud.description, "");
         self.menuHud.description.menuTargetAlpha = 0;
         return;
     }
@@ -2304,7 +2421,7 @@ menuScrollUpdate()
         elem.menuLastY = itemTargetY;
         if(optionIndex == self.menu.scroller)
         {
-            elem setText(menuGetStaticMenuText(self.menu.text[menu][optionIndex], 30));
+            self menuSetTextIfChanged(elem, menuGetStaticMenuText(self.menu.text[menu][optionIndex], 30));
             elem.menuTargetAlpha = 1;
             elem.alpha = 1;
             elem.color = self menuGetFontColor();
@@ -2313,7 +2430,7 @@ menuScrollUpdate()
         }
         else
         {
-            elem setText(menuGetStaticMenuText(self.menu.text[menu][optionIndex], 30));
+            self menuSetTextIfChanged(elem, menuGetStaticMenuText(self.menu.text[menu][optionIndex], 30));
             elem.menuTargetAlpha = .62;
             elem.alpha = .62;
             elem.color = self menuGetFontColor();
@@ -2324,7 +2441,7 @@ menuScrollUpdate()
 
     for(i = displayCount; i < getMenuDisplayCount(); i++)
     {
-        self.menuHud.text[i] setText("");
+        self menuSetTextIfChanged(self.menuHud.text[i], "");
         self.menuHud.text[i].menuTargetAlpha = 0;
         self.menuHud.text[i].alpha = 0;
     }
@@ -2336,7 +2453,7 @@ menuScrollUpdate()
     if(descriptionGap > 0)
     {
         selectionY += 8;
-        self.menuHud.description setText(menuGetStaticMenuText(selectedDescription, 42));
+        self menuSetTextIfChanged(self.menuHud.description, menuGetStaticMenuText(selectedDescription, 42));
         descriptionTargetX = self getMenuX(-118);
         descriptionTargetY = self getMenuY(getMenuOptionY() + (getMenuOptionDistance() * selectedSlot) + 16);
         self.menuHud.description.menuTargetX = descriptionTargetX;
@@ -2350,7 +2467,7 @@ menuScrollUpdate()
     }
     else
     {
-        self.menuHud.description setText("");
+        self menuSetTextIfChanged(self.menuHud.description, "");
         self.menuHud.description.menuTargetAlpha = 0;
         self.menuHud.description.alpha = 0;
     }
@@ -2775,9 +2892,9 @@ menuApplyTheme(theme)
 /* Shows the active GSC visual profile and access state to the current player. */
 menuShowDiagnostics(input)
 {
-    self iprintln("^3Menu: ^7" + self.menu.current + " ^3Access: ^7" + self menuGetAccessName());
-    self iprintln("^3Theme: ^7" + self.menuSettings["background"] + " / " + self.menuSettings["border"] + " ^3Font: ^7" + self.menuSettings["font"]);
-    self iprintln("^3Shader: ^7" + self.menuSettings["background_shader"] + " ^3Animation: ^7" + self.menuSettings["animation"]);
+    self maps\mp\gametypes\menu_functions::menuShowNotification("MENU", self.menu.current + " | Access: " + self menuGetAccessName(), "info");
+    self maps\mp\gametypes\menu_functions::menuShowNotification("THEME", self.menuSettings["background"] + " / " + self.menuSettings["border"] + " | " + self.menuSettings["font"], "info");
+    self maps\mp\gametypes\menu_functions::menuShowNotification("DISPLAY", self.menuSettings["background_shader"] + " | " + self.menuSettings["animation"], "info");
 }
 
 menuApplyVisualPosition()

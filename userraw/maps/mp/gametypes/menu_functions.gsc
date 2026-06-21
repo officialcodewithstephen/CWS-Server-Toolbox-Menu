@@ -9,12 +9,664 @@
     Layout and HUD navigation remain in menu.gsc.
 */
 
+/* Adds a themed notification to the top of this player's active stack. */
+menuShowNotification(title, caption, kind)
+{
+    self thread menuPushNotification(title, caption, kind, 3.5);
+}
+
+menuShowNotificationTimed(title, caption, kind, duration)
+{
+    self thread menuPushNotification(title, caption, kind, duration);
+}
+
+/* Sends the same custom notification to every connected player. */
+menuNotifyAll(title, caption, kind)
+{
+    for(i = 0; i < level.players.size; i++)
+    {
+        if(isDefined(level.players[i]))
+        {
+            level.players[i] menuShowNotification(title, caption, kind);
+        }
+    }
+}
+
+menuNotifyAllTimed(title, caption, kind, duration)
+{
+    for(i = 0; i < level.players.size; i++)
+    {
+        if(isDefined(level.players[i]))
+        {
+            level.players[i] menuShowNotificationTimed(title, caption, kind, duration);
+        }
+    }
+}
+
+menuPushNotification(title, caption, kind, duration)
+{
+    self endon("disconnect");
+    if(!isDefined(duration) || duration < 1)
+    {
+        duration = 1;
+    }
+    else if(duration > 8)
+    {
+        duration = 8;
+    }
+
+    if(!isDefined(self.menuNotifications))
+    {
+        self.menuNotifications = [];
+        self.menuNotificationCount = 0;
+        self.menuNotificationId = 0;
+    }
+
+    safeCaption = self maps\mp\gametypes\menu::menuGetStaticMenuText(caption, 48);
+    for(i = 0; i < self.menuNotificationCount; i++)
+    {
+        active = self.menuNotifications[i];
+        if(isDefined(active) && active.captionText == safeCaption)
+        {
+            return;
+        }
+    }
+
+    if(self.menuNotificationCount >= 2)
+    {
+        expiredNotification = self.menuNotifications[1];
+        self.menuNotifications[1] = undefined;
+        self.menuNotificationCount = 1;
+        self thread menuSlideOutAndDestroyNotification(expiredNotification);
+    }
+
+    for(i = self.menuNotificationCount; i > 0; i--)
+    {
+        self.menuNotifications[i] = self.menuNotifications[i - 1];
+    }
+
+    self.menuNotificationId++;
+    notification = self menuCreateNotification(self.menuNotificationId, title, caption, kind);
+    self.menuNotifications[0] = notification;
+    self.menuNotificationCount++;
+    self menuReflowNotificationStack();
+    self thread menuNotificationLifetime(notification.id, duration);
+}
+
+menuCreateNotification(id, title, caption, kind)
+{
+    notification = spawnStruct();
+    notification.id = id;
+    notification.slot = 0;
+    notification.captionText = self maps\mp\gametypes\menu::menuGetStaticMenuText(caption, 48);
+    notification.width = menuGetNotificationWidth(notification.captionText);
+    notification.height = 32;
+    notification.targetX = 320;
+    notification.targetY = notification.height / 2;
+    notification.offscreenY = 0 - (notification.height / 2) - 3;
+    notification.textXOffset = 0 - (notification.width / 2) + 8;
+    notification.borderYOffset = 0 - (notification.height / 2) + 1;
+    notification.captionYOffset = 0;
+    notification.elements = [];
+
+    backgroundColor = self maps\mp\gametypes\menu::menuGetBackgroundColor();
+    borderColor = self maps\mp\gametypes\menu::getMenuAccentColor();
+    fallbackCaption = "Information updated.";
+    if(kind == "success")
+    {
+        borderColor = (.08, .8, .28);
+        fallbackCaption = "Action completed successfully.";
+    }
+    else if(kind == "error")
+    {
+        borderColor = (1, .16, .16);
+        fallbackCaption = "The action could not be completed.";
+    }
+    else if(kind == "warning")
+    {
+        borderColor = (1, .78, .08);
+        fallbackCaption = "Review this action.";
+    }
+
+    notification.background = self menuCreateNotificationRectangle(notification.targetX, notification.offscreenY, notification.width, notification.height, backgroundColor, self maps\mp\gametypes\menu::menuGetPanelOpacity(), 150);
+    notification.border = self menuCreateNotificationRectangle(notification.targetX, notification.offscreenY + notification.borderYOffset, notification.width, 2, borderColor, 1, 152);
+    notification.caption = self menuCreateNotificationText(notification.targetX + notification.textXOffset, notification.offscreenY + notification.captionYOffset, .9, self maps\mp\gametypes\menu::menuGetFontColor(), notification.captionText, fallbackCaption);
+    notification.elements[0] = notification.background;
+    notification.elements[1] = notification.border;
+    notification.elements[2] = notification.caption;
+    return notification;
+}
+
+/* Approximates content width and clamps it to the menu's normal panel width. */
+menuGetNotificationWidth(caption)
+{
+    width = (caption.size * 5) + 16;
+    if(width < 140)
+    {
+        width = 140;
+    }
+    menuWidth = maps\mp\gametypes\menu::getMenuPanelWidth();
+    if(width > menuWidth)
+    {
+        width = menuWidth;
+    }
+    return width;
+}
+
+menuCreateNotificationRectangle(x, y, width, height, color, alpha, sort)
+{
+    elem = newClientHudElem(self);
+    elem.elemType = "bar";
+    elem.horzAlign = "fullscreen";
+    elem.vertAlign = "fullscreen";
+    elem.alignX = "center";
+    elem.alignY = "middle";
+    elem.x = x;
+    elem.y = y;
+    elem.color = color;
+    elem.alpha = alpha;
+    elem.sort = sort;
+    elem.foreground = true;
+    elem.hideWhenInMenu = true;
+    elem setShader("white", width, height);
+    return elem;
+}
+
+menuCreateNotificationText(x, y, scale, color, text, fallback)
+{
+    elem = self createFontString(self maps\mp\gametypes\menu::menuGetFontName(), scale);
+    elem.horzAlign = "fullscreen";
+    elem.vertAlign = "fullscreen";
+    elem.alignX = "left";
+    elem.alignY = "middle";
+    elem.x = x;
+    elem.y = y;
+    elem.color = color;
+    elem.alpha = 1;
+    elem.sort = 153;
+    elem.foreground = true;
+    elem.hideWhenInMenu = true;
+    elem setText(menuGetStableNotificationText(text, fallback));
+    return elem;
+}
+
+/*
+    Limits unique notification strings per map. IW4 stores HUD strings in a
+    511-entry configstring table, so unlimited dynamic captions eventually
+    cause G_FindConfigstringIndex overflow on long-running maps.
+*/
+menuGetStableNotificationText(text, fallback)
+{
+    if(!isDefined(level.menuNotificationTextCache))
+    {
+        level.menuNotificationTextCache = [];
+        level.menuNotificationTextCount = 0;
+    }
+
+    for(i = 0; i < level.menuNotificationTextCount; i++)
+    {
+        if(level.menuNotificationTextCache[i] == text)
+        {
+            return text;
+        }
+    }
+
+    if(level.menuNotificationTextCount >= 32)
+    {
+        return fallback;
+    }
+
+    level.menuNotificationTextCache[level.menuNotificationTextCount] = text;
+    level.menuNotificationTextCount++;
+    return text;
+}
+
+/* Places every panel directly after the previous panel with a five-pixel gap. */
+menuReflowNotificationStack()
+{
+    if(!isDefined(self.menuNotifications) || !isDefined(self.menuNotificationCount))
+    {
+        return;
+    }
+
+    nextTop = 10;
+    for(i = 0; i < self.menuNotificationCount; i++)
+    {
+        notification = self.menuNotifications[i];
+        if(!isDefined(notification))
+        {
+            continue;
+        }
+        notification.slot = i;
+        notification.targetY = nextTop + (notification.height / 2);
+        self menuMoveNotificationElements(notification, notification.targetX, notification.targetY, .18);
+        nextTop += notification.height + 5;
+    }
+}
+
+menuMoveNotificationElements(notification, centerX, centerY, duration)
+{
+    if(!isDefined(notification) || !isDefined(notification.elements))
+    {
+        return;
+    }
+    targetXs = [];
+    targetYs = [];
+    targetXs[0] = centerX;
+    targetYs[0] = centerY;
+    targetXs[1] = centerX;
+    targetYs[1] = centerY + notification.borderYOffset;
+    targetXs[2] = centerX + notification.textXOffset;
+    targetYs[2] = centerY + notification.captionYOffset;
+    for(i = 0; i < notification.elements.size; i++)
+    {
+        if(isDefined(notification.elements[i]))
+        {
+            notification.elements[i] moveOverTime(duration);
+            notification.elements[i].x = targetXs[i];
+            notification.elements[i].y = targetYs[i];
+        }
+    }
+}
+
+menuNotificationLifetime(id, duration)
+{
+    self endon("disconnect");
+    wait duration;
+    self menuRemoveNotification(id);
+}
+
+menuRemoveNotification(id)
+{
+    if(!isDefined(self.menuNotifications) || !isDefined(self.menuNotificationCount))
+    {
+        return;
+    }
+    found = -1;
+    for(i = 0; i < self.menuNotificationCount; i++)
+    {
+        if(isDefined(self.menuNotifications[i]) && self.menuNotifications[i].id == id)
+        {
+            found = i;
+            break;
+        }
+    }
+    if(found < 0)
+    {
+        return;
+    }
+
+    notification = self.menuNotifications[found];
+    for(i = found + 1; i < self.menuNotificationCount; i++)
+    {
+        self.menuNotifications[i - 1] = self.menuNotifications[i];
+    }
+    self.menuNotifications[self.menuNotificationCount - 1] = undefined;
+    self.menuNotificationCount--;
+    self menuReflowNotificationStack();
+    self menuSlideOutAndDestroyNotification(notification);
+}
+
+/* Slides a detached notification above the viewport, then frees every HUD element. */
+menuSlideOutAndDestroyNotification(notification)
+{
+    if(!isDefined(notification))
+    {
+        return;
+    }
+
+    self menuMoveNotificationElements(notification, notification.targetX, notification.offscreenY, .2);
+    wait .2;
+    self menuDestroyNotification(notification);
+}
+
+menuDestroyNotification(notification)
+{
+    if(!isDefined(notification) || !isDefined(notification.elements))
+    {
+        return;
+    }
+    for(i = 0; i < notification.elements.size; i++)
+    {
+        if(isDefined(notification.elements[i]))
+        {
+            notification.elements[i] destroy();
+            notification.elements[i] = undefined;
+        }
+    }
+    notification.elements = [];
+}
+
+menuResetNotificationState()
+{
+    if(isDefined(self.menuNotifications))
+    {
+        for(i = 0; i < self.menuNotifications.size; i++)
+        {
+            if(isDefined(self.menuNotifications[i]))
+            {
+                self menuDestroyNotification(self.menuNotifications[i]);
+            }
+        }
+    }
+
+    self.menuNotifications = [];
+    self.menuNotificationCount = 0;
+    if(!isDefined(self.menuNotificationId))
+    {
+        self.menuNotificationId = 0;
+    }
+}
+
+/*
+    Opens a persistent, menu-styled confirmation notification. Destructive
+    actions use Confirm/Abort; question-style actions use Yes/No. The normal
+    menu remains closed until one of the two choices is made.
+*/
+menuOpenConfirmation(title, style, acceptFunction, acceptInput, parent)
+{
+    if(isDefined(self.menuConfirmationOpen) && self.menuConfirmationOpen)
+    {
+        return;
+    }
+
+    self menuResetNotificationState();
+    self.menuConfirmation = spawnStruct();
+    self.menuConfirmation.title = title;
+    self.menuConfirmation.style = style;
+    self.menuConfirmation.acceptFunction = acceptFunction;
+    self.menuConfirmation.acceptInput = acceptInput;
+    self.menuConfirmation.parent = parent;
+    self.menuConfirmation.selected = 0;
+    self.menuConfirmationOpen = true;
+    self maps\mp\gametypes\menu::closeBaseMenu();
+    self thread menuRunConfirmation();
+}
+
+menuRunConfirmation()
+{
+    self endon("disconnect");
+    wait .32;
+
+    if(!isDefined(self.menuConfirmationOpen) || !self.menuConfirmationOpen)
+    {
+        return;
+    }
+
+    self menuCreateConfirmationHud();
+    self freezeControls(true);
+
+    for(;;)
+    {
+        if(!isDefined(self.menuConfirmationOpen) || !self.menuConfirmationOpen)
+        {
+            return;
+        }
+
+        upPressed = self maps\mp\gametypes\menu::menuBindPressed(self.menuControlBinds["up"]);
+        downPressed = self maps\mp\gametypes\menu::menuBindPressed(self.menuControlBinds["down"]);
+
+        if(upPressed || downPressed)
+        {
+            self.menuConfirmation.selected = 1 - self.menuConfirmation.selected;
+            self menuUpdateConfirmationSelection();
+            activeBind = self.menuControlBinds["up"];
+            if(downPressed)
+            {
+                activeBind = self.menuControlBinds["down"];
+            }
+
+            self maps\mp\gametypes\menu::waitMenuBindRelease(activeBind);
+            wait .08;
+        }
+        else if(self maps\mp\gametypes\menu::menuBindPressed(self.menuControlBinds["select"]))
+        {
+            accepted = self.menuConfirmation.selected == 0;
+            self menuResolveConfirmation(accepted);
+            return;
+        }
+        else if(self maps\mp\gametypes\menu::menuCloseButtonPressed() || self MeleeButtonPressed())
+        {
+            self menuResolveConfirmation(false);
+            return;
+        }
+
+        wait .05;
+    }
+}
+
+menuCreateConfirmationHud()
+{
+    self menuDestroyConfirmationHud();
+    self.menuConfirmationHud = [];
+    viewportX = 320;
+    viewportY = 240;
+    slideOffset = -400;
+    panelWidth = maps\mp\gametypes\menu::getMenuPanelWidth();
+    panelTop = -58;
+    headerSeparatorY = panelTop + 42;
+    optionStartY = headerSeparatorY + 17;
+    optionDistance = maps\mp\gametypes\menu::getMenuOptionDistance();
+    lastOptionY = optionStartY + optionDistance;
+    contentBottomY = lastOptionY + 11;
+    footerSeparatorY = contentBottomY + maps\mp\gametypes\menu::getMenuContentEdgeGap() + 1;
+    panelBottom = footerSeparatorY + 6;
+    panelHeight = panelBottom - panelTop;
+    panelCenterY = panelTop + (panelHeight / 2);
+    textLeft = viewportX - (panelWidth / 2) + 10;
+    optionLeft = viewportX - (panelWidth / 2) + 14;
+    backgroundColor = self maps\mp\gametypes\menu::menuGetBackgroundColor();
+    accentColor = self maps\mp\gametypes\menu::getMenuAccentColor();
+    fontColor = self maps\mp\gametypes\menu::menuGetFontColor();
+    selectionColor = self maps\mp\gametypes\menu::menuGetSelectionColor();
+    yesLabel = "Confirm";
+    noLabel = "Abort";
+
+    if(self.menuConfirmation.style == "yesno")
+    {
+        yesLabel = "Yes";
+        noLabel = "No";
+    }
+
+    targetYs = [];
+    targetYs[0] = viewportY + panelCenterY;
+    targetYs[1] = viewportY + panelTop + 1;
+    targetYs[2] = viewportY + headerSeparatorY;
+    targetYs[3] = viewportY + footerSeparatorY;
+    targetYs[4] = viewportY + optionStartY;
+    targetYs[5] = viewportY + panelTop + 20;
+    targetYs[6] = viewportY + optionStartY;
+    targetYs[7] = viewportY + lastOptionY;
+
+    background = self menuCreateConfirmationRectangle(viewportX, targetYs[0] + slideOffset, panelWidth, panelHeight, backgroundColor, self maps\mp\gametypes\menu::menuGetPanelOpacity(), 170);
+    topBorder = self menuCreateConfirmationRectangle(viewportX, targetYs[1] + slideOffset, panelWidth, 3, accentColor, 1, 172);
+    headerBorder = self menuCreateConfirmationRectangle(viewportX, targetYs[2] + slideOffset, panelWidth, 2, accentColor, 1, 172);
+    bottomBorder = self menuCreateConfirmationRectangle(viewportX, targetYs[3] + slideOffset, panelWidth, 2, accentColor, 1, 172);
+    selector = self menuCreateConfirmationRectangle(viewportX, targetYs[4] + slideOffset, panelWidth, maps\mp\gametypes\menu::getMenuSelectionHeight(""), selectionColor, .95, 171);
+    title = self menuCreateConfirmationText(textLeft, targetYs[5] + slideOffset, 1.2, fontColor, self.menuConfirmation.title, "CONFIRM ACTION");
+    optionYes = self menuCreateConfirmationText(optionLeft, targetYs[6] + slideOffset, maps\mp\gametypes\menu::getMenuSelectedFontScale(), fontColor, yesLabel, yesLabel);
+    optionNo = self menuCreateConfirmationText(optionLeft, targetYs[7] + slideOffset, maps\mp\gametypes\menu::getMenuDefaultFontScale(), fontColor, noLabel, noLabel);
+
+    self.menuConfirmationHud[0] = background;
+    self.menuConfirmationHud[1] = topBorder;
+    self.menuConfirmationHud[2] = headerBorder;
+    self.menuConfirmationHud[3] = bottomBorder;
+    self.menuConfirmationHud[4] = selector;
+    self.menuConfirmationHud[5] = title;
+    self.menuConfirmationHud[6] = optionYes;
+    self.menuConfirmationHud[7] = optionNo;
+    self.menuConfirmationHud[7].alpha = .65;
+    self.menuConfirmation.optionStartY = viewportY + optionStartY;
+    self.menuConfirmation.optionDistance = optionDistance;
+
+    for(i = 0; i < self.menuConfirmationHud.size; i++)
+    {
+        self.menuConfirmationHud[i] moveOverTime(.2);
+        self.menuConfirmationHud[i].y = targetYs[i];
+    }
+}
+
+menuCreateConfirmationRectangle(x, y, width, height, color, alpha, sort)
+{
+    elem = newClientHudElem(self);
+    elem.elemType = "bar";
+    elem.horzAlign = "fullscreen";
+    elem.vertAlign = "fullscreen";
+    elem.alignX = "center";
+    elem.alignY = "middle";
+    elem.x = x;
+    elem.y = y;
+    elem.color = color;
+    elem.alpha = alpha;
+    elem.sort = sort;
+    elem.foreground = true;
+    elem.hideWhenInMenu = true;
+    elem setShader("white", width, height);
+    return elem;
+}
+
+menuCreateConfirmationText(x, y, scale, color, text, fallback)
+{
+    elem = self createFontString(self maps\mp\gametypes\menu::menuGetFontName(), scale);
+    elem.horzAlign = "fullscreen";
+    elem.vertAlign = "fullscreen";
+    elem.alignX = "left";
+    elem.alignY = "middle";
+    elem.x = x;
+    elem.y = y;
+    elem.color = color;
+    elem.alpha = 1;
+    elem.sort = 173;
+    elem.foreground = true;
+    elem.hideWhenInMenu = true;
+    stableText = self maps\mp\gametypes\menu::menuGetStaticMenuText(text, 42);
+    elem setText(menuGetStableNotificationText(stableText, fallback));
+    return elem;
+}
+
+menuUpdateConfirmationSelection()
+{
+    if(!isDefined(self.menuConfirmationHud))
+    {
+        return;
+    }
+
+    selectionY = self.menuConfirmation.optionStartY + (self.menuConfirmation.selected * self.menuConfirmation.optionDistance);
+    self.menuConfirmationHud[4] moveOverTime(.12);
+    self.menuConfirmationHud[4].y = selectionY;
+    self.menuConfirmationHud[6].alpha = .65;
+    self.menuConfirmationHud[7].alpha = .65;
+    self.menuConfirmationHud[6] changeFontScaleOverTime(.12);
+    self.menuConfirmationHud[7] changeFontScaleOverTime(.12);
+    self.menuConfirmationHud[6].fontscale = maps\mp\gametypes\menu::getMenuDefaultFontScale();
+    self.menuConfirmationHud[7].fontscale = maps\mp\gametypes\menu::getMenuDefaultFontScale();
+    self.menuConfirmationHud[6 + self.menuConfirmation.selected].alpha = 1;
+    self.menuConfirmationHud[6 + self.menuConfirmation.selected] changeFontScaleOverTime(.12);
+    self.menuConfirmationHud[6 + self.menuConfirmation.selected].fontscale = maps\mp\gametypes\menu::getMenuSelectedFontScale();
+}
+
+menuResolveConfirmation(accepted)
+{
+    if(!isDefined(self.menuConfirmation))
+    {
+        return;
+    }
+
+    acceptFunction = self.menuConfirmation.acceptFunction;
+    acceptInput = self.menuConfirmation.acceptInput;
+    parent = self.menuConfirmation.parent;
+    self menuDestroyConfirmationHud();
+    self freezeControls(false);
+
+    while(self maps\mp\gametypes\menu::menuBindPressed(self.menuControlBinds["select"]) || self maps\mp\gametypes\menu::menuCloseButtonPressed() || self MeleeButtonPressed())
+    {
+        wait .05;
+    }
+
+    self.menuConfirmationOpen = false;
+    self.menuConfirmation = undefined;
+
+    if(accepted && isDefined(acceptFunction))
+    {
+        self [[acceptFunction]](acceptInput);
+        return;
+    }
+
+    self maps\mp\gametypes\menu::openBaseMenu();
+    if(isDefined(parent) && parent != "")
+    {
+        self maps\mp\gametypes\menu::loadBaseMenu(parent);
+    }
+}
+
+menuDestroyConfirmationHud()
+{
+    if(!isDefined(self.menuConfirmationHud))
+    {
+        return;
+    }
+
+    for(i = 0; i < self.menuConfirmationHud.size; i++)
+    {
+        if(isDefined(self.menuConfirmationHud[i]))
+        {
+            self.menuConfirmationHud[i] destroy();
+        }
+    }
+
+    self.menuConfirmationHud = undefined;
+}
+
+/* Clears modal state without reopening the menu during respawn/reinitialization. */
+menuResetConfirmationState()
+{
+    self.menuConfirmationOpen = false;
+    self menuDestroyConfirmationHud();
+    self.menuConfirmation = undefined;
+    self freezeControls(false);
+}
+
+/* Releases every auxiliary HUD and monitor when menu access is revoked. */
+menuCleanupPlayerRuntime()
+{
+    if(isDefined(self.menuWatching) && self.menuWatching)
+    {
+        self menuStopWatching();
+    }
+    if(isDefined(self.menuKeepEyeActive) && self.menuKeepEyeActive)
+    {
+        self menuKeepEyeDisable();
+    }
+    if(isDefined(self.menuUfo) && self.menuUfo)
+    {
+        self menuExitUfo();
+    }
+    if(isDefined(self.menuHidden) && self.menuHidden)
+    {
+        self menuDisableHide();
+    }
+
+    self.menuServerStatusOpen = false;
+    if(isDefined(self.menuRemoteRequestId))
+    {
+        self.menuRemoteRequestId++;
+    }
+    self notify("menu_server_status_stop");
+    self notify("menu_remote_loading_restart");
+    self menuDestroyServerStatusHud();
+    self menuWatchEspDisable();
+    self menuWatchTelemetryDisable();
+    self menuKeepEyeHudDisable();
+    self menuResetConfirmationState();
+    self menuResetNotificationState();
+}
+
 /* Starts spectator tracking for the currently selected connected player. */
 menuWatchSelectedPlayer(input)
 {
     if(!isDefined(self.menu) || !isDefined(self.menu.selectedPlayer))
     {
-        self iprintln("^1No player selected.");
+        self menuShowNotification("PLAYER", "No player selected.", "error");
         return;
     }
 
@@ -22,17 +674,18 @@ menuWatchSelectedPlayer(input)
 
     if(!isDefined(target))
     {
-        self iprintln("^1That player is no longer connected.");
+        self menuShowNotification("PLAYER", "That player is no longer connected.", "error");
         return;
     }
 
     if(target == self)
     {
-        self iprintln("^1You cannot watch yourself.");
+        self menuShowNotification("WATCH", "You cannot watch yourself.", "error");
         return;
     }
 
     self maps\mp\gametypes\menu::closeBaseMenu();
+    self notify("menu_watch_stop");
     self thread menuWatchPlayer(target);
 }
 
@@ -83,11 +736,7 @@ menuSubmitPresetModeration(input)
 menuOpenModerationConfirmation(input)
 {
     parent = self.menu.current;
-    menu = "moderation_action_confirm";
-    self maps\mp\gametypes\menu::menuCreateMenu(menu, "Confirm Moderation", parent);
-    self maps\mp\gametypes\menu::menuAddOption(menu, 0, "Confirm", ::menuConfirmPresetModeration, input, "Apply this moderation action to the selected player.");
-    self maps\mp\gametypes\menu::menuAddOption(menu, 1, "Cancel", ::menuOpenGeneratedMenu, parent, "Return without taking action.");
-    self maps\mp\gametypes\menu::loadBaseMenu(menu);
+    self menuOpenConfirmation("CONFIRM MODERATION", "confirm", ::menuConfirmPresetModeration, input, parent);
 }
 
 menuConfirmPresetModeration(input)
@@ -127,7 +776,7 @@ menuSubmitCustomModeration(action)
 
     if(reason == "")
     {
-        self iprintln("^1Set a custom reason first: ^7/set cws_menu_custom_reason your_reason_here");
+        self menuShowNotification("CUSTOM REASON", "Set cws_menu_custom_reason before continuing.", "warning");
         return;
     }
 
@@ -146,13 +795,13 @@ menuSetTempBanCustomReason(menu)
 
     if(reason == "")
     {
-        self iprintln("^1Set a custom reason first: ^7/set cws_menu_custom_reason your_reason_here");
+        self menuShowNotification("CUSTOM REASON", "Set cws_menu_custom_reason before continuing.", "warning");
         return;
     }
 
     self.menuTempBanReason = reason;
     self.menu.text[menu][0] = "Reason: Custom";
-    self iprintln("^2Custom reason set: ^7" + reason);
+    self menuShowNotification("CUSTOM REASON", "Reason updated: " + reason, "success");
     self maps\mp\gametypes\menu::loadBaseMenu(menu);
 }
 
@@ -234,11 +883,7 @@ menuSubmitTempBan(menu)
 
     parent = self.menu.current;
     self.menuPendingTempBanParent = parent;
-    menuConfirm = "tempban_action_confirm";
-    self maps\mp\gametypes\menu::menuCreateMenu(menuConfirm, "Confirm Temp Ban", parent);
-    self maps\mp\gametypes\menu::menuAddOption(menuConfirm, 0, "Confirm", ::menuConfirmTempBan, "", "Apply this temporary ban to the selected player.");
-    self maps\mp\gametypes\menu::menuAddOption(menuConfirm, 1, "Cancel", ::menuOpenGeneratedMenu, parent, "Return without taking action.");
-    self maps\mp\gametypes\menu::loadBaseMenu(menuConfirm);
+    self menuOpenConfirmation("CONFIRM TEMP BAN", "confirm", ::menuConfirmTempBan, "", parent);
 }
 
 menuConfirmTempBan(input)
@@ -318,13 +963,13 @@ menuSendModerationRequest(action, target, reason, duration)
 {
     if(!isDefined(target))
     {
-        self iprintln("^1That player disconnected.");
+        self menuShowNotification("MODERATION", "That player disconnected.", "error");
         return;
     }
 
     self maps\mp\gametypes\menu::closeBaseMenu();
     logPrint("[CWSADMIN] action=" + action + " origin=" + menuActionPlayerGuid(self) + " origin_slot=" + self getEntityNumber() + " target=" + menuActionPlayerGuid(target) + " target_slot=" + target getEntityNumber() + " duration=" + duration + " reason=\"" + reason + "\"\n");
-    self iprintln("^2Moderation request sent to IW4MAdmin.");
+    self menuShowNotification("MODERATION", "Request sent to IW4MAdmin.", "success");
 }
 
 menuActionPlayerGuid(player)
@@ -337,18 +982,57 @@ menuActionPlayerGuid(player)
     return "unknown";
 }
 
-menuSetHudTextIfChanged(hud, text)
+menuSetHudTextIfChanged(hud, text, fallback)
 {
     if(!isDefined(hud))
     {
         return;
     }
 
+    text = menuGetStableTelemetryText(text, fallback);
+
     if(!isDefined(hud.menuLastText) || hud.menuLastText != text)
     {
         hud setText(text);
         hud.menuLastText = text;
     }
+}
+
+/* Bounds dynamic spectator labels so changing player names cannot exhaust HUD strings. */
+menuGetStableTelemetryText(text, fallback)
+{
+    if(!isDefined(text))
+    {
+        return "";
+    }
+
+    if(!isDefined(fallback) || fallback == "")
+    {
+        fallback = "Player information updated.";
+    }
+
+    if(!isDefined(level.menuTelemetryTextCache))
+    {
+        level.menuTelemetryTextCache = [];
+        level.menuTelemetryTextCount = 0;
+    }
+
+    for(i = 0; i < level.menuTelemetryTextCount; i++)
+    {
+        if(level.menuTelemetryTextCache[i] == text)
+        {
+            return text;
+        }
+    }
+
+    if(level.menuTelemetryTextCount >= 32)
+    {
+        return fallback;
+    }
+
+    level.menuTelemetryTextCache[level.menuTelemetryTextCount] = text;
+    level.menuTelemetryTextCount++;
+    return text;
 }
 
 /* Executes an allow-listed command selected from the Server menu. */
@@ -453,6 +1137,26 @@ menuFetchRemoteRows(kind, input)
     page = parts[2];
     slot = self getEntityNumber();
     self.menuRemoteParent = self.menu.current;
+    requestParent = self.menuRemoteParent;
+
+    if(!isDefined(self.menuRemoteRequestId))
+    {
+        self.menuRemoteRequestId = 0;
+    }
+    self.menuRemoteRequestId++;
+    requestId = self.menuRemoteRequestId;
+
+    target = undefined;
+    if(kind == "history" || kind == "totals" || kind == "known" || kind == "baninfo")
+    {
+        target = self menuGetSelectedPlayerForAction();
+        if(!isDefined(target))
+        {
+            self menuShowNotification("PLAYER UNAVAILABLE", "That player disconnected.", "error");
+            return;
+        }
+    }
+
     self menuShowRemoteLoading(kind);
     revisionDvar = "cws_dragnet_revision_" + slot;
     oldRevision = getDvar(revisionDvar);
@@ -467,17 +1171,14 @@ menuFetchRemoteRows(kind, input)
     }
     else if(kind == "history")
     {
-        target = self menuGetSelectedPlayerForAction();
         logPrint("[CWSADMIN] action=playerhistory origin=" + menuActionPlayerGuid(self) + " origin_slot=" + slot + " target=" + menuActionPlayerGuid(target) + " target_slot=" + target getEntityNumber() + "\n");
     }
     else if(kind == "totals")
     {
-        target = self menuGetSelectedPlayerForAction();
         logPrint("[CWSADMIN] action=playertotals origin=" + menuActionPlayerGuid(self) + " origin_slot=" + slot + " target=" + menuActionPlayerGuid(target) + " target_slot=" + target getEntityNumber() + "\n");
     }
     else if(kind == "known" || kind == "baninfo")
     {
-        target = self menuGetSelectedPlayerForAction();
         logPrint("[CWSADMIN] action=" + command + " origin=" + menuActionPlayerGuid(self) + " origin_slot=" + slot + " target=" + menuActionPlayerGuid(target) + " target_slot=" + target getEntityNumber() + "\n");
     }
     else if(kind == "audit")
@@ -503,6 +1204,11 @@ menuFetchRemoteRows(kind, input)
 
     for(i = 0; i < 80; i++)
     {
+        if(!isDefined(self.menuRemoteRequestId) || self.menuRemoteRequestId != requestId)
+        {
+            return;
+        }
+
         if(getDvar(revisionDvar) != oldRevision)
         {
             break;
@@ -511,8 +1217,24 @@ menuFetchRemoteRows(kind, input)
         wait .05;
     }
 
+    if(!isDefined(self.menuRemoteRequestId) || self.menuRemoteRequestId != requestId)
+    {
+        return;
+    }
+
+    if(!self maps\mp\gametypes\menu::isMenuOpen() || !isDefined(self.menu.current) || self.menu.current != "remote_data_loading")
+    {
+        return;
+    }
+
     if(getDvar(revisionDvar) == oldRevision)
     {
+        parent = "iw4madmin_menu";
+        if(isDefined(requestParent) && requestParent != "")
+        {
+            parent = requestParent;
+        }
+        self menuHandleRemoteTimeout(parent);
         return;
     }
 
@@ -536,6 +1258,7 @@ menuFetchRemoteRows(kind, input)
 
 menuShowRemoteLoading(kind)
 {
+    self notify("menu_remote_loading_restart");
     menu = "remote_data_loading";
     title = "Dragnet";
     parent = "dragnet_menu";
@@ -617,6 +1340,7 @@ menuShowRemoteLoading(kind)
 menuAnimateRemoteLoading(menu)
 {
     self endon("disconnect");
+    self endon("menu_remote_loading_restart");
     frames = [];
     frames[0] = "[|]";
     frames[1] = "[/]";
@@ -631,7 +1355,7 @@ menuAnimateRemoteLoading(menu)
 
         if(isDefined(self.menuHud) && isDefined(self.menuHud.text) && self.menuHud.text.size > 0 && isDefined(self.menuHud.text[0]))
         {
-            self.menuHud.text[0] setText(loadingText);
+            self maps\mp\gametypes\menu::menuSetTextIfChanged(self.menuHud.text[0], loadingText);
         }
 
         frame++;
@@ -676,7 +1400,7 @@ menuBuildDragnetResults()
 
         if(view == "peers" && rowParts.size > 1)
         {
-            self maps\mp\gametypes\menu::menuAddDetailedOption(menu, option, label, ::menuOpenDragnetPeerDetails, row, description);
+            self maps\mp\gametypes\menu::menuAddDetailedOption(menu, option, label, ::menuNoRemoteAction, "", description);
         }
         else if((view == "pending" || view == "lifts") && rowParts.size > 1)
         {
@@ -702,69 +1426,6 @@ menuBuildDragnetResults()
     }
 
     self maps\mp\gametypes\menu::menuAddOption(menu, option, "Refresh", ::menuOpenDragnetView, "refresh|" + view + "|" + page, "Refresh this Dragnet view.");
-    self maps\mp\gametypes\menu::loadBaseMenu(menu);
-}
-
-menuOpenDragnetPeerDetails(input)
-{
-    rowParts = strTok(input, "~");
-
-    if(rowParts.size < 2)
-    {
-        return;
-    }
-
-    menu = "dragnet_peer_details";
-    self maps\mp\gametypes\menu::menuCreateMenu(menu, rowParts[0], "dragnet_results");
-    details = strTok(rowParts[1], "|");
-    option = 0;
-
-    originId = "";
-
-    for(i = 0; i < details.size; i++)
-    {
-        if(details[i] == "")
-        {
-            continue;
-        }
-
-        detailLabel = details[i];
-        detailDescription = details[i];
-        detailParts = strTok(details[i], ":");
-
-        if(detailParts.size > 1)
-        {
-            detailLabel = detailParts[0];
-            valueStart = detailLabel.size + 1;
-
-            if(details[i].size > valueStart && getSubStr(details[i], valueStart, valueStart + 1) == " ")
-            {
-                valueStart++;
-            }
-
-            detailDescription = getSubStr(details[i], valueStart, details[i].size);
-        }
-
-        self maps\mp\gametypes\menu::menuAddDetailedOption(menu, option, detailLabel, ::menuNoRemoteAction, "", detailDescription);
-        option++;
-
-        if(details[i].size > 11 && getSubStr(details[i], 0, 10) == "Origin ID:")
-        {
-            originId = getSubStr(details[i], 11, details[i].size);
-        }
-    }
-
-    if(originId != "")
-    {
-        self maps\mp\gametypes\menu::menuAddOption(menu, option, "Request Resync", ::menuOpenDragnetConfirmation, "resync|" + originId, "Queue a full event resync from this peer.");
-        option++;
-        self maps\mp\gametypes\menu::menuAddOption(menu, option, "Clear Error", ::menuOpenDragnetConfirmation, "clearerror|" + originId, "Clear this peer's current transport error.");
-        option++;
-        self maps\mp\gametypes\menu::menuAddOption(menu, option, "Trust Peer", ::menuOpenDragnetConfirmation, "trust|" + originId, "Trust events signed by this Dragnet origin.");
-        option++;
-        self maps\mp\gametypes\menu::menuAddOption(menu, option, "Untrust Peer", ::menuOpenDragnetConfirmation, "untrust|" + originId, "Remove trust from this Dragnet origin.");
-    }
-
     self maps\mp\gametypes\menu::loadBaseMenu(menu);
 }
 
@@ -819,11 +1480,7 @@ menuOpenDragnetConfirmation(input)
 
     self.menuPendingDragnetAction = input;
     self.menuPendingDragnetParent = self.menu.current;
-    menu = "dragnet_action_confirm";
-    self maps\mp\gametypes\menu::menuCreateMenu(menu, "Confirm Action", self.menuPendingDragnetParent);
-    self maps\mp\gametypes\menu::menuAddOption(menu, 0, "Confirm", ::menuSubmitDragnetAction, input, "Apply this action. This operation is recorded by IW4MAdmin.");
-    self maps\mp\gametypes\menu::menuAddOption(menu, 1, "Cancel", ::menuOpenGeneratedMenu, self.menuPendingDragnetParent, "Return without making changes.");
-    self maps\mp\gametypes\menu::loadBaseMenu(menu);
+    self menuOpenConfirmation("CONFIRM ACTION", "confirm", ::menuSubmitDragnetAction, input, self.menuPendingDragnetParent);
 }
 
 menuSubmitDragnetAction(input)
@@ -836,12 +1493,11 @@ menuSubmitDragnetAction(input)
 
     slot = self getEntityNumber();
     oldRevision = getDvar("cws_dragnet_revision_" + slot);
-    self menuShowRemoteLoading("action");
     logPrint("[CWSADMIN] action=dragnetaction origin=" + menuActionPlayerGuid(self) + " origin_slot=" + slot + " command=" + parts[0] + " id=" + parts[1] + "\n");
-    self thread menuWaitForRemoteAction(oldRevision);
+    self thread menuWaitForRemoteAction(oldRevision, parts[0]);
 }
 
-menuWaitForRemoteAction(oldRevision)
+menuWaitForRemoteAction(oldRevision, action)
 {
     self endon("disconnect");
     slot = self getEntityNumber();
@@ -850,12 +1506,46 @@ menuWaitForRemoteAction(oldRevision)
     {
         if(getDvar("cws_dragnet_revision_" + slot) != oldRevision)
         {
-            self menuBuildRemoteInfoResults("action");
+            result = getDvar("cws_dragnet_row_" + slot + "_0");
+            if(result == "")
+            {
+                result = "Dragnet action completed.";
+            }
+            kind = "success";
+            if(menuDragnetResultIsError(result))
+            {
+                kind = "error";
+            }
+            self menuShowNotification("DRAGNET", result, kind);
             return;
         }
 
         wait .05;
     }
+
+    parent = "dragnet_menu";
+    if(isDefined(self.menuPendingDragnetParent) && self.menuPendingDragnetParent != "")
+    {
+        parent = self.menuPendingDragnetParent;
+    }
+    self menuHandleRemoteTimeout(parent);
+}
+
+menuDragnetResultIsError(result)
+{
+    if(result == "Dragnet peer was not found." || result == "That Dragnet menu action is not supported." || result == "Dragnet is still starting. Try again shortly.")
+    {
+        return true;
+    }
+    if(result.size >= 5 && getSubStr(result, 0, 5) == "Could")
+    {
+        return true;
+    }
+    if(result.size >= 14 && getSubStr(result, 0, 14) == "Dragnet action")
+    {
+        return true;
+    }
+    return false;
 }
 
 menuBuildRemoteInfoResults(kind)
@@ -960,11 +1650,7 @@ menuBuildReportsResults()
 menuOpenReportConfirmation(input)
 {
     parent = self.menu.current;
-    menu = "report_action_confirm";
-    self maps\mp\gametypes\menu::menuCreateMenu(menu, "Confirm Report Action", parent);
-    self maps\mp\gametypes\menu::menuAddOption(menu, 0, "Confirm", ::menuSubmitReportAction, input, "Apply this report review state.");
-    self maps\mp\gametypes\menu::menuAddOption(menu, 1, "Cancel", ::menuOpenGeneratedMenu, parent, "Return without changing the report.");
-    self maps\mp\gametypes\menu::loadBaseMenu(menu);
+    self menuOpenConfirmation("REPORT ACTION", "yesno", ::menuSubmitReportAction, input, parent);
 }
 
 menuSubmitReportAction(input)
@@ -976,31 +1662,25 @@ menuSubmitReportAction(input)
     }
     slot = self getEntityNumber();
     oldRevision = getDvar("cws_dragnet_revision_" + slot);
-    self menuShowRemoteLoading("reports");
     logPrint("[CWSADMIN] action=reportaction origin=" + menuActionPlayerGuid(self) + " origin_slot=" + slot + " command=" + parts[0] + " id=" + parts[1] + "\n");
-    self thread menuWaitForIw4mRefresh(oldRevision, "reports");
+    self thread menuWaitForIw4mRefresh(oldRevision, "reports", parts[0]);
 }
 
 menuOpenRotationConfirmation(command)
 {
     parent = self.menu.current;
-    menu = "rotation_action_confirm";
-    self maps\mp\gametypes\menu::menuCreateMenu(menu, "Confirm Rotation Change", parent);
-    self maps\mp\gametypes\menu::menuAddOption(menu, 0, "Confirm", ::menuSubmitRotationAction, command, "Apply this map rotation operation.");
-    self maps\mp\gametypes\menu::menuAddOption(menu, 1, "Cancel", ::menuOpenGeneratedMenu, parent, "Return without changing the rotation.");
-    self maps\mp\gametypes\menu::loadBaseMenu(menu);
+    self menuOpenConfirmation("CONFIRM ROTATION", "confirm", ::menuSubmitRotationAction, command, parent);
 }
 
 menuSubmitRotationAction(command)
 {
     slot = self getEntityNumber();
     oldRevision = getDvar("cws_dragnet_revision_" + slot);
-    self menuShowRemoteLoading("rotation");
     logPrint("[CWSADMIN] action=rotationaction origin=" + menuActionPlayerGuid(self) + " origin_slot=" + slot + " command=" + command + "\n");
-    self thread menuWaitForIw4mRefresh(oldRevision, "rotation");
+    self thread menuWaitForIw4mRefresh(oldRevision, "rotation", command);
 }
 
-menuWaitForIw4mRefresh(oldRevision, kind)
+menuWaitForIw4mRefresh(oldRevision, kind, action)
 {
     self endon("disconnect");
     slot = self getEntityNumber();
@@ -1010,16 +1690,37 @@ menuWaitForIw4mRefresh(oldRevision, kind)
         {
             if(kind == "reports")
             {
-                self menuBuildReportsResults();
+                result = "Report updated.";
+                if(action == "resolved")
+                {
+                    result = "Report marked as resolved.";
+                }
+                else if(action == "dismissed")
+                {
+                    result = "Report dismissed.";
+                }
+                self menuShowNotification("REPORT", result, "success");
             }
             else
             {
-                self menuBuildRemoteInfoResults(kind);
+                result = "Map rotation updated.";
+                if(action == "rotate")
+                {
+                    result = "Map rotation requested.";
+                }
+                self menuShowNotification("ROTATION", result, "success");
             }
             return;
         }
         wait .05;
     }
+
+    parent = "iw4madmin_menu";
+    if(kind == "rotation")
+    {
+        parent = "iw4m_rotation_menu";
+    }
+    self menuHandleRemoteTimeout(parent);
 }
 
 /* Builds ban-management rows and unban confirmation screens. */
@@ -1090,11 +1791,7 @@ menuSubmitUnbanId(offenderId)
 menuOpenUnbanConfirmation(offenderId)
 {
     parent = self.menu.current;
-    menu = "unban_action_confirm";
-    self maps\mp\gametypes\menu::menuCreateMenu(menu, "Confirm Unban", parent);
-    self maps\mp\gametypes\menu::menuAddOption(menu, 0, "Confirm", ::menuSubmitUnbanId, offenderId, "Remove this player's active ban.");
-    self maps\mp\gametypes\menu::menuAddOption(menu, 1, "Cancel", ::menuOpenGeneratedMenu, parent, "Return without removing the ban.");
-    self maps\mp\gametypes\menu::loadBaseMenu(menu);
+    self menuOpenConfirmation("CONFIRM UNBAN", "yesno", ::menuSubmitUnbanId, offenderId, parent);
 }
 
 menuWaitForBanRefresh(oldRevision)
@@ -1106,11 +1803,23 @@ menuWaitForBanRefresh(oldRevision)
     {
         if(getDvar("cws_dragnet_revision_" + slot) != oldRevision)
         {
-            self menuBuildBanResults();
+            self menuShowNotification("BAN MANAGEMENT", "Player unbanned.", "success");
             return;
         }
 
         wait .05;
+    }
+
+    self menuHandleRemoteTimeout("iw4madmin_menu");
+}
+
+menuHandleRemoteTimeout(parent)
+{
+    self menuShowNotification("REQUEST TIMEOUT", "IW4MAdmin did not respond. Try again.", "error");
+
+    if(self maps\mp\gametypes\menu::isMenuOpen() && isDefined(parent) && parent != "")
+    {
+        self maps\mp\gametypes\menu::loadBaseMenu(parent);
     }
 }
 
@@ -1135,20 +1844,23 @@ menuShowServerStatus(input)
 {
     if(isDefined(self.menuServerStatusOpen) && self.menuServerStatusOpen)
     {
-        self menuDestroyServerStatusHud();
         self.menuServerStatusOpen = false;
-        self iprintln("^3Server details hidden.");
+        self notify("menu_server_status_stop");
+        self menuDestroyServerStatusHud();
+        self menuShowNotification("SERVER INFO", "Server details hidden.", "info");
         return;
     }
 
+    self notify("menu_server_status_stop");
     self.menuServerStatusOpen = true;
     self thread menuServerStatusHudLoop();
-    self iprintln("^2Server details shown. Select Server Status again to hide.");
+    self menuShowNotification("SERVER INFO", "Server details shown.", "success");
 }
 
 menuServerStatusHudLoop()
 {
     self endon("disconnect");
+    self endon("menu_server_status_stop");
 
     self menuDestroyServerStatusHud();
     self.menuServerStatusHud = [];
@@ -1167,6 +1879,7 @@ menuServerStatusHudLoop()
     title.sort = 23;
     title.alpha = .95;
     title.color = (1, 1, 1);
+    title setText("SERVER INFO");
     self.menuServerStatusHud[self.menuServerStatusHud.size] = title;
 
     body = self createFontString("default", 1);
@@ -1261,8 +1974,6 @@ menuServerStatusHudLoop()
 
         title.x = panelCenterX;
         title.y = panelTop + 18;
-        title setText("SERVER INFO");
-
         bodyText = rows[0];
 
         for(i = 1; i < rows.size; i++)
@@ -1273,16 +1984,44 @@ menuServerStatusHudLoop()
         self.menuServerStatusHud[1].x = textLeft;
         self.menuServerStatusHud[1].y = panelTop + 42;
 
-        if(!isDefined(self.menuServerStatusBodyText) || self.menuServerStatusBodyText != bodyText)
+        stableBodyText = menuGetStableServerStatusText(bodyText);
+        if(!isDefined(self.menuServerStatusBodyText) || self.menuServerStatusBodyText != stableBodyText)
         {
-            self.menuServerStatusHud[1] setText(bodyText);
-            self.menuServerStatusBodyText = bodyText;
+            self.menuServerStatusHud[1] setText(stableBodyText);
+            self.menuServerStatusBodyText = stableBodyText;
         }
 
         wait .5;
     }
 
     self menuDestroyServerStatusHud();
+}
+
+/* Caps live server-panel combinations on long-running maps. */
+menuGetStableServerStatusText(text)
+{
+    if(!isDefined(level.menuServerStatusTextCache))
+    {
+        level.menuServerStatusTextCache = [];
+        level.menuServerStatusTextCount = 0;
+    }
+
+    for(i = 0; i < level.menuServerStatusTextCount; i++)
+    {
+        if(level.menuServerStatusTextCache[i] == text)
+        {
+            return text;
+        }
+    }
+
+    if(level.menuServerStatusTextCount >= 24)
+    {
+        return "Server information changed. Reopen this panel after the next map.";
+    }
+
+    level.menuServerStatusTextCache[level.menuServerStatusTextCount] = text;
+    level.menuServerStatusTextCount++;
+    return text;
 }
 
 menuCreateServerStatusRectangle(x, y, width, height, color, alpha, sort)
@@ -1382,13 +2121,13 @@ menuCycleFriendlyFire(input)
     }
 
     Exec("scr_team_fftype " + value);
-    self iprintln("^2Friendly fire mode: ^7" + value);
+    self menuShowNotification("SERVER SETTING", "Friendly fire mode: " + value, "info");
 }
 
 menuSetServerGravity(value)
 {
     Exec("g_gravity " + value);
-    self iprintln("^2Gravity set to ^7" + value);
+    self menuShowNotification("SERVER SETTING", "Gravity set to " + value, "success");
 }
 
 menuSetServerDvar(input)
@@ -1401,7 +2140,7 @@ menuSetServerDvar(input)
     }
 
     Exec(parts[0] + " " + parts[1]);
-    self iprintln("^2" + parts[2] + " set to ^7" + parts[1]);
+    self menuShowNotification("SERVER SETTING", parts[2] + " set to " + parts[1], "success");
 }
 
 
@@ -1425,11 +2164,11 @@ menuToggleServerDvar(input)
 
     if(value > 0)
     {
-        self iprintln("^2" + parts[1] + " toggled ^7ON");
+        self menuShowNotification("SERVER SETTING", parts[1] + " toggled ON", "success");
     }
     else
     {
-        self iprintln("^1" + parts[1] + " toggled ^7OFF");
+        self menuShowNotification("SERVER SETTING", parts[1] + " toggled OFF", "warning");
     }
 }
 
@@ -1445,7 +2184,7 @@ menuSetGametypeLimit(input)
     gametype = getDvar("g_gametype");
     dvar = "scr_" + gametype + "_" + parts[0];
     Exec(dvar + " " + parts[1]);
-    self iprintln("^2" + parts[0] + " set to ^7" + parts[1] + " ^2for ^7" + gametype);
+    self menuShowNotification("MATCH LIMIT", parts[0] + " set to " + parts[1] + " for " + gametype, "success");
 }
 
 /* Adds an amount to the current gametype-specific time or score limit. */
@@ -1460,12 +2199,12 @@ menuAdjustGametypeLimit(input)
     dvar = "scr_" + gametype + "_" + parts[0];
     value = getDvarInt(dvar) + int(parts[1]);
     Exec(dvar + " " + value);
-    iprintlnbold("^3Overtime: ^7" + parts[0] + " is now " + value);
+    menuNotifyAll("OVERTIME", parts[0] + " is now " + value, "warning");
 }
 
 menuBroadcastServerMessage(message)
 {
-    iprintlnbold("^3[SERVER] ^7" + message);
+    menuNotifyAll("SERVER", message, "info");
 }
 
 /* Applies personal third-person display state without granting god mode. */
@@ -1481,12 +2220,12 @@ menuToggleThirdPerson(input)
     if(self.menuThirdPerson)
     {
         self setClientDvar("cg_thirdPerson", "1");
-        self iprintln("^2Third Person: ON");
+        self menuShowNotification("THIRD PERSON", "Enabled.", "success");
     }
     else
     {
         self setClientDvar("cg_thirdPerson", "0");
-        self iprintln("^1Third Person: OFF");
+        self menuShowNotification("THIRD PERSON", "Disabled.", "info");
     }
 }
 
@@ -1502,19 +2241,19 @@ menuToggleFullbright(input)
     if(self.menuFullbright)
     {
         self setClientDvar("r_fullbright", "1");
-        self iprintln("^2Fullbright: ON");
+        self menuShowNotification("FULLBRIGHT", "Enabled.", "success");
     }
     else
     {
         self setClientDvar("r_fullbright", "0");
-        self iprintln("^1Fullbright: OFF");
+        self menuShowNotification("FULLBRIGHT", "Disabled.", "info");
     }
 }
 
 menuRefillSelfAmmo(input)
 {
     menuRefillPlayerCurrentAmmo(self);
-    self iprintln("^2Current weapon ammo refilled.");
+    self menuShowNotification("AMMUNITION", "Current weapon ammo refilled.", "success");
 }
 
 menuSetControlBind(input)
@@ -1527,7 +2266,7 @@ menuSetControlBind(input)
     }
 
     self maps\mp\gametypes\menu::menuApplyControlBind(parts[0], parts[1]);
-    self iprintln("^2Menu " + parts[0] + " bind set to ^7" + parts[1] + ".");
+    self menuShowNotification("CONTROLS", parts[0] + " bind set to " + parts[1] + ".", "success");
 }
 
 menuToggleAccessHint(input)
@@ -1540,14 +2279,14 @@ menuToggleAccessHint(input)
         setDvar(dvarName, "0");
         self maps\mp\gametypes\menu::destroyMenuAccessHint();
         self.menu.text["self_display"][3] = "Show Open Hint";
-        self iprintln("^3Menu open hint: OFF");
+        self menuShowNotification("OPEN HINT", "Hidden.", "info");
     }
     else
     {
         setDvar(dvarName, "1");
         self maps\mp\gametypes\menu::startMenuAccessHint();
         self.menu.text["self_display"][3] = "Hide Open Hint";
-        self iprintln("^2Menu open hint: ON");
+        self menuShowNotification("OPEN HINT", "Shown.", "success");
     }
 
     self maps\mp\gametypes\menu::loadBaseMenu("self_display");
@@ -1556,7 +2295,7 @@ menuToggleAccessHint(input)
 menuSetSelfFov(value)
 {
     self setClientDvar("cg_fov", value);
-    self iprintln("^2Field of view: ^7" + value);
+    self menuShowNotification("FIELD OF VIEW", "Set to " + value + ".", "success");
 }
 
 /* Applies one allow-listed client DVAR from a menu option. */
@@ -1570,7 +2309,7 @@ menuSetClientDvar(input)
     self setClientDvar(parts[0], parts[1]);
     if(parts.size > 2)
     {
-        self iprintln("^2" + parts[2] + ".");
+        self menuShowNotification("CLIENT SETTING", parts[2] + ".", "success");
     }
 }
 
@@ -1593,7 +2332,7 @@ menuApplyVisionPreset(preset)
     {
         self setClientDvar("r_picmip", "3");
     }
-    self iprintln("^2Vision preset: ^7" + preset);
+    self menuShowNotification("VISION", "Preset applied: " + preset, "success");
 }
 
 /* Displays a synchronized countdown to every connected player. */
@@ -1607,10 +2346,10 @@ menuStartCountdown(value)
     self maps\mp\gametypes\menu::closeBaseMenu();
     for(i = count; i > 0; i--)
     {
-        iprintlnbold("^3" + i);
+        menuNotifyAllTimed("COUNTDOWN", "" + i, "warning", .9);
         wait 1;
     }
-    iprintlnbold("^2GO!");
+    menuNotifyAllTimed("COUNTDOWN", "GO!", "success", 1.5);
 }
 
 /* Toggles password-based join lockdown while preserving the prior password. */
@@ -1633,7 +2372,7 @@ menuSetServerLockdownState(enabled, actor)
         setDvar("cws_lockdown_old_password", getDvar("g_password"));
         setDvar("g_password", "CWS_LOCKED_" + randomInt(999999));
         setDvar("cws_server_lockdown", "1");
-        iprintlnbold("^1SERVER LOCKDOWN ENABLED ^7- new joins are blocked.");
+        menuNotifyAll("SERVER LOCKDOWN", "Enabled - new joins are blocked.", "error");
         menuAddAdminActivity(actor, "enabled server lockdown");
         return;
     }
@@ -1645,8 +2384,36 @@ menuSetServerLockdownState(enabled, actor)
     setDvar("g_password", getDvar("cws_lockdown_old_password"));
     setDvar("cws_lockdown_old_password", "");
     setDvar("cws_server_lockdown", "0");
-    iprintlnbold("^2SERVER LOCKDOWN DISABLED ^7- joining is open.");
+    menuNotifyAll("SERVER LOCKDOWN", "Disabled - joining is open.", "success");
     menuAddAdminActivity(actor, "disabled server lockdown");
+}
+
+/* Creates one cancellable delayed restart, rotation, or announcement. */
+menuPrepareScheduledEvent(actor)
+{
+    if(!isDefined(level.cwsScheduledEventActive) || !level.cwsScheduledEventActive)
+    {
+        return;
+    }
+
+    previousType = level.cwsScheduledEventType;
+    wasMaintenance = isDefined(level.cwsScheduledEventMaintenance) && level.cwsScheduledEventMaintenance;
+
+    if(!isDefined(level.cwsScheduledEventId))
+    {
+        level.cwsScheduledEventId = 0;
+    }
+
+    level.cwsScheduledEventId++;
+    level.cwsScheduledEventActive = false;
+    level.cwsScheduledEventMaintenance = false;
+
+    if(wasMaintenance)
+    {
+        menuSetServerLockdownState(false, actor);
+    }
+
+    menuAddAdminActivity(actor, "replaced pending " + previousType);
 }
 
 /* Creates one cancellable delayed restart, rotation, or announcement. */
@@ -1669,6 +2436,9 @@ menuScheduleServerEvent(input)
         return;
     }
 
+    actor = menuGetPlayerName(self);
+    menuPrepareScheduledEvent(actor);
+
     if(!isDefined(level.cwsScheduledEventId))
     {
         level.cwsScheduledEventId = 0;
@@ -1678,10 +2448,9 @@ menuScheduleServerEvent(input)
     level.cwsScheduledEventActive = true;
     level.cwsScheduledEventType = eventType;
     level.cwsScheduledEventMaintenance = false;
-    actor = menuGetPlayerName(self);
     menuAddAdminActivity(actor, "scheduled " + eventType + " in " + delay + " seconds");
     self maps\mp\gametypes\menu::closeBaseMenu();
-    iprintlnbold("^3Scheduled " + eventType + " in ^7" + delay + " seconds.");
+    menuNotifyAll("EVENT SCHEDULED", eventType + " in " + delay + " seconds.", "warning");
     level thread menuRunScheduledServerEvent(eventId, eventType, delay, payload, actor);
 }
 
@@ -1695,7 +2464,7 @@ menuRunScheduledServerEvent(eventId, eventType, delay, payload, actor)
         }
         if(remaining == 10)
         {
-            iprintlnbold("^3Scheduled " + eventType + " in ^710 seconds.");
+            menuNotifyAll("EVENT REMINDER", eventType + " in 10 seconds.", "warning");
         }
         wait 1;
     }
@@ -1715,7 +2484,7 @@ menuRunScheduledServerEvent(eventId, eventType, delay, payload, actor)
     }
     else if(eventType == "announce")
     {
-        iprintlnbold("^3[SERVER] ^7" + payload);
+        menuNotifyAll("SERVER", payload, "info");
     }
 }
 
@@ -1733,6 +2502,10 @@ menuStartMaintenance(input)
     {
         return;
     }
+
+    actor = menuGetPlayerName(self);
+    menuPrepareScheduledEvent(actor);
+
     if(!isDefined(level.cwsScheduledEventId))
     {
         level.cwsScheduledEventId = 0;
@@ -1742,7 +2515,6 @@ menuStartMaintenance(input)
     level.cwsScheduledEventActive = true;
     level.cwsScheduledEventType = "maintenance " + action;
     level.cwsScheduledEventMaintenance = true;
-    actor = menuGetPlayerName(self);
     menuSetServerLockdownState(true, actor);
     menuAddAdminActivity(actor, "started maintenance " + action + " countdown at " + delay + " seconds");
     self maps\mp\gametypes\menu::closeBaseMenu();
@@ -1759,7 +2531,7 @@ menuRunMaintenance(eventId, action, delay, actor)
         }
         if(remaining <= 10 || remaining == 30 || remaining == 60 || remaining == 120 || remaining == 300)
         {
-            iprintlnbold("^1MAINTENANCE: ^7server " + action + " in " + remaining + " seconds.");
+            menuNotifyAll("MAINTENANCE", "Server " + action + " in " + remaining + " seconds.", "warning");
         }
         wait 1;
     }
@@ -1882,7 +2654,7 @@ menuApplyServerPreset(preset)
     {
         return;
     }
-    self iprintln("^2Server preset applied: ^7" + preset);
+    self menuShowNotification("SERVER PRESET", "Applied: " + preset, "success");
 }
 
 /* Balances or shuffles active players between Allies and Axis. */
@@ -1919,7 +2691,7 @@ menuBalanceTeams(mode)
         player.sessionteam = team;
         moved++;
     }
-    iprintlnbold("^3Teams updated: ^7" + moved + " players");
+    menuNotifyAll("TEAM MANAGEMENT", "Teams updated: " + moved + " players.", "info");
 }
 
 /* Shows active team sizes and current team scores. */
@@ -1943,19 +2715,19 @@ menuShowTeamOverview(input)
             spectators++;
         }
     }
-    self iprintln("^2Allies: ^7" + allies + " ^1Axis: ^7" + axis + " ^3Spectators: ^7" + spectators);
+    self menuShowNotification("TEAM OVERVIEW", "Allies: " + allies + " | Axis: " + axis + " | Spectators: " + spectators, "info");
     if(isDefined(game["teamScores"]) && isDefined(game["teamScores"]["allies"]) && isDefined(game["teamScores"]["axis"]))
     {
-        self iprintln("^2Allies score: ^7" + game["teamScores"]["allies"] + " ^1Axis score: ^7" + game["teamScores"]["axis"]);
+        self menuShowNotification("TEAM SCORES", "Allies: " + game["teamScores"]["allies"] + " | Axis: " + game["teamScores"]["axis"], "info");
     }
 }
 
 /* Prints live menu and server state to the requesting administrator. */
 menuShowGscDiagnostics(input)
 {
-    self iprintln("^3GSC menu: ^2Loaded ^3Role: ^7" + self maps\mp\gametypes\menu::menuGetAccessName());
-    self iprintln("^3Map: ^7" + getDvar("mapname") + " ^3Mode: ^7" + getDvar("g_gametype") + " ^3Players: ^7" + level.players.size);
-    self iprintln("^3Gravity: ^7" + getDvar("g_gravity") + " ^3Speed: ^7" + getDvar("g_speed") + " ^3Timescale: ^7" + getDvar("timescale"));
+    self menuShowNotification("MENU DIAGNOSTICS", "Loaded | Role: " + self maps\mp\gametypes\menu::menuGetAccessName(), "success");
+    self menuShowNotification("SERVER DIAGNOSTICS", "Map: " + getDvar("mapname") + " | Mode: " + getDvar("g_gametype") + " | Players: " + level.players.size, "info");
+    self menuShowNotification("SERVER DVARs", "Gravity: " + getDvar("g_gravity") + " | Speed: " + getDvar("g_speed") + " | Time: " + getDvar("timescale"), "info");
 }
 
 menuSuicideSelf(input)
@@ -1993,9 +2765,9 @@ menuShowSelectedPlayerInfo(input)
         state = target.sessionstate;
     }
 
-    self iprintln("^3Player: ^7" + menuGetPlayerName(target) + " ^3Slot: ^7" + target getEntityNumber());
-    self iprintln("^3GUID: ^7" + guid);
-    self iprintln("^3Team: ^7" + team + " ^3State: ^7" + state);
+    self menuShowNotification("PLAYER INFO", menuGetPlayerName(target) + " | Slot: " + target getEntityNumber(), "info");
+    self menuShowNotification("PLAYER GUID", guid, "info");
+    self menuShowNotification("PLAYER STATE", "Team: " + team + " | State: " + state, "info");
 }
 
 menuTeleportToSelectedPlayer(input)
@@ -2022,7 +2794,7 @@ menuBringSelectedPlayer(input)
 
     destination = self.origin + (anglesToForward(self getPlayerAngles()) * 60) + (0, 0, 12);
     target setOrigin(destination);
-    self iprintln("^2Player brought to you.");
+    self menuShowNotification("PLAYER MOVEMENT", "Player brought to you.", "success");
 }
 
 menuToggleFreezeSelectedPlayer(input)
@@ -2044,11 +2816,11 @@ menuToggleFreezeSelectedPlayer(input)
 
     if(target.menuAdminFrozen)
     {
-        self iprintln("^1Player frozen.");
+        self menuShowNotification("PLAYER CONTROL", "Player frozen.", "warning");
     }
     else
     {
-        self iprintln("^2Player unfrozen.");
+        self menuShowNotification("PLAYER CONTROL", "Player unfrozen.", "success");
     }
 }
 
@@ -2075,7 +2847,7 @@ menuRefillSelectedPlayerAmmo(input)
     }
 
     menuRefillPlayerCurrentAmmo(target);
-    self iprintln("^2Player ammo refilled.");
+    self menuShowNotification("PLAYER UTILITY", "Player ammo refilled.", "success");
 }
 
 menuStripSelectedPlayerWeapons(input)
@@ -2088,7 +2860,7 @@ menuStripSelectedPlayerWeapons(input)
     }
 
     target takeAllWeapons();
-    self iprintln("^1Player weapons removed.");
+    self menuShowNotification("PLAYER UTILITY", "Player weapons removed.", "warning");
 }
 
 menuHealSelectedPlayer(input)
@@ -2108,7 +2880,7 @@ menuHealSelectedPlayer(input)
     }
 
     target.health = health;
-    self iprintln("^2Player health restored.");
+    self menuShowNotification("PLAYER UTILITY", "Player health restored.", "success");
 }
 
 menuResetSelectedPlayerState(input)
@@ -2125,7 +2897,7 @@ menuResetSelectedPlayerState(input)
     target setContents(100);
     target.menuAdminFrozen = false;
     target.menuHidden = false;
-    self iprintln("^2Player state reset.");
+    self menuShowNotification("PLAYER UTILITY", "Player state reset.", "success");
 }
 
 /* Shows the selected player's current weapon and available ammunition. */
@@ -2137,7 +2909,7 @@ menuShowSelectedPlayerWeapon(input)
         return;
     }
     weapon = target getCurrentWeapon();
-    self iprintln("^3Player: ^7" + menuGetPlayerName(target) + " ^3Weapon: ^7" + weapon);
+    self menuShowNotification("PLAYER WEAPON", menuGetPlayerName(target) + " | " + weapon, "info");
 }
 
 /* Moves the selected player to a team or spectator state. */
@@ -2190,7 +2962,7 @@ menuMoveSelectedPlayerTeam(team)
     {
         return;
     }
-    self iprintln("^2Player moved to ^7" + team + ".");
+    self menuShowNotification("TEAM MANAGEMENT", "Player moved to " + team + ".", "success");
 }
 
 menuSendSelectedPlayerMessage(message)
@@ -2202,8 +2974,8 @@ menuSendSelectedPlayerMessage(message)
         return;
     }
 
-    target iprintlnbold("^3[STAFF] ^7" + message);
-    self iprintln("^2Private staff message sent.");
+    target menuShowNotification("STAFF MESSAGE", message, "warning");
+    self menuShowNotification("STAFF MESSAGE", "Private message sent.", "success");
 }
 
 menuRefillPlayerCurrentAmmo(player)
@@ -2225,7 +2997,7 @@ menuGetSelectedPlayerForAction()
 {
     if(!isDefined(self.menu) || !isDefined(self.menu.selectedPlayer))
     {
-        self iprintln("^1No player selected.");
+        self menuShowNotification("PLAYER", "No player selected.", "error");
         return undefined;
     }
 
@@ -2233,7 +3005,7 @@ menuGetSelectedPlayerForAction()
 
     if(!isDefined(target))
     {
-        self iprintln("^1That player is no longer connected.");
+        self menuShowNotification("PLAYER", "That player is no longer connected.", "error");
         return undefined;
     }
 
@@ -2244,7 +3016,7 @@ menuGetAdminSelectedPlayer()
 {
     if(!self maps\mp\gametypes\menu::menuIsAdmin())
     {
-        self iprintln("^1Admin access is required.");
+        self menuShowNotification("ACCESS DENIED", "Administrator access is required.", "error");
         return undefined;
     }
 
@@ -2255,13 +3027,13 @@ menuGetAdminSelectedPlayer()
 menuWatchPlayer(target)
 {
     self endon("disconnect");
+    self endon("menu_watch_stop");
 
     if(!isDefined(target))
     {
         return;
     }
 
-    self notify("menu_watch_stop");
     self.menuWatching = true;
     self.menuWatchTarget = target;
     self.menuWatchOldState = self.sessionstate;
@@ -2275,7 +3047,7 @@ menuWatchPlayer(target)
     self menuWatchEspEnable(target);
     self menuWatchTelemetryEnable();
     self thread menuWatchShotMonitor(target);
-    self iprintln("^2Watching ^7" + menuGetPlayerName(target) + "^2. Melee, Frag, or Smoke exits.");
+    self menuShowNotification("WATCHING", menuGetPlayerName(target) + " - melee, frag, or smoke exits.", "info");
 
     while(self MeleeButtonPressed() || self maps\mp\gametypes\menu::menuCloseButtonPressed())
     {
@@ -2322,7 +3094,6 @@ menuStopWatching()
     }
 
     self.menuWatching = false;
-    self notify("menu_watch_stop");
     self menuWatchEspDisable();
     self menuWatchTelemetryDisable();
     self.spectatorclient = -1;
@@ -2348,21 +3119,22 @@ menuStopWatching()
     self maps\mp\gametypes\_spectating::setSpectatePermissions();
 
     self.menuWatchTarget = undefined;
-    self iprintln("^3Stopped watching.");
+    self menuShowNotification("WATCHING", "Stopped watching.", "info");
+    self notify("menu_watch_stop");
 }
 
 menuKeepEyeOnSelectedPlayer(input)
 {
     if(!self maps\mp\gametypes\menu::menuIsOwner())
     {
-        self iprintln("^1Owner access is required.");
+        self menuShowNotification("ACCESS DENIED", "Owner access is required.", "error");
         return;
     }
 
     target = self menuGetSelectedPlayerForAction();
     if(!isDefined(target) || target == self)
     {
-        self iprintln("^1Select another connected player.");
+        self menuShowNotification("PLAYER", "Select another connected player.", "error");
         return;
     }
 
@@ -2381,7 +3153,7 @@ menuKeepEyeOnSelectedPlayer(input)
     self.menuKeepEyeLastSwitchTime = 0;
     self menuKeepEyeHudEnable();
     self maps\mp\gametypes\menu::closeBaseMenu();
-    self iprintln("^2Keeping an eye on ^7" + menuGetPlayerName(target) + "^2. Select Keep Eye On again to stop.");
+    self menuShowNotification("KEEP EYE ON", "Monitoring " + menuGetPlayerName(target) + ".", "info");
     self thread menuKeepEyeLoop(target);
 }
 
@@ -2497,7 +3269,7 @@ menuKeepEyeHudEnable()
         hud.sort = 45;
         hud.color = (1, 1, 1);
         hud.alpha = .9;
-        menuSetHudTextIfChanged(hud, labels[i]);
+        menuSetHudTextIfChanged(hud, labels[i], labels[i]);
         self.menuKeepEyeHud[i] = hud;
     }
 }
@@ -2526,10 +3298,10 @@ menuUpdateKeepEyeHud(watchedPlayer, closestTarget, crosshairTarget)
         status = "^1Should Watch";
     }
 
-    menuSetHudTextIfChanged(self.menuKeepEyeHud[0], "^7Player Name: ^2" + menuGetPlayerName(watchedPlayer));
-    menuSetHudTextIfChanged(self.menuKeepEyeHud[1], "^7Target: ^3" + targetName);
-    menuSetHudTextIfChanged(self.menuKeepEyeHud[2], "^7Crosshair Target: ^3" + crosshairName);
-    menuSetHudTextIfChanged(self.menuKeepEyeHud[3], "^7Status: " + status);
+    menuSetHudTextIfChanged(self.menuKeepEyeHud[0], "^7Player Name: ^2" + menuGetPlayerName(watchedPlayer), "^7Player Name: ^2Player");
+    menuSetHudTextIfChanged(self.menuKeepEyeHud[1], "^7Target: ^3" + targetName, "^7Target: ^3Player");
+    menuSetHudTextIfChanged(self.menuKeepEyeHud[2], "^7Crosshair Target: ^3" + crosshairName, "^7Crosshair Target: ^3Player");
+    menuSetHudTextIfChanged(self.menuKeepEyeHud[3], "^7Status: " + status, "^7Status: Monitoring");
 }
 
 menuKeepEyeDisable()
@@ -2540,12 +3312,11 @@ menuKeepEyeDisable()
     self.menuKeepEyeTarget = undefined;
     self.menuKeepEyeLastTarget = undefined;
     self.menuKeepEyeScore = 0;
-    self notify("menu_keep_eye_stop");
-
     if(wasActive)
     {
-        self iprintln("^3Keep Eye On stopped.");
+        self menuShowNotification("KEEP EYE ON", "Monitoring stopped.", "info");
     }
+    self notify("menu_keep_eye_stop");
 }
 
 menuKeepEyeHudDisable()
@@ -2672,17 +3443,26 @@ menuWatchEspRefresh(watchedPlayer)
         return;
     }
 
+    activeIcons = [];
     for(i = 0; i < self.menuWatchIcons.size; i++)
     {
         icon = self.menuWatchIcons[i];
 
-        if(!isDefined(icon) || !isDefined(icon.menuWatchTarget))
+        if(!isDefined(icon))
         {
             continue;
         }
 
+        if(!isDefined(icon.menuWatchTarget) || !self menuWatchEspShouldTrack(watchedPlayer, icon.menuWatchTarget))
+        {
+            icon destroy();
+            continue;
+        }
+
         icon.color = menuWatchEspColorForTarget(watchedPlayer, icon.menuWatchTarget);
+        activeIcons[activeIcons.size] = icon;
     }
+    self.menuWatchIcons = activeIcons;
 
     if(!isDefined(level.players))
     {
@@ -2826,7 +3606,7 @@ menuWatchTelemetryEnable()
         hud.sort = 45;
         hud.color = (1, 1, 1);
         hud.alpha = .9;
-        menuSetHudTextIfChanged(hud, labels[i]);
+        menuSetHudTextIfChanged(hud, labels[i], labels[i]);
         self.menuWatchTelemetryHud[i] = hud;
     }
 }
@@ -2884,9 +3664,9 @@ menuUpdateWatchTelemetryHud(watchedPlayer, closestTarget, crosshairOnTarget)
         crosshairText = "^2YES";
     }
 
-    menuSetHudTextIfChanged(self.menuWatchTelemetryHud[0], "^7Player Name: ^2" + menuGetPlayerName(watchedPlayer));
-    menuSetHudTextIfChanged(self.menuWatchTelemetryHud[1], "^7Target: ^3" + targetName);
-    menuSetHudTextIfChanged(self.menuWatchTelemetryHud[2], "^7Crosshair Target: " + crosshairText);
+    menuSetHudTextIfChanged(self.menuWatchTelemetryHud[0], "^7Player Name: ^2" + menuGetPlayerName(watchedPlayer), "^7Player Name: ^2Player");
+    menuSetHudTextIfChanged(self.menuWatchTelemetryHud[1], "^7Target: ^3" + targetName, "^7Target: ^3Player");
+    menuSetHudTextIfChanged(self.menuWatchTelemetryHud[2], "^7Crosshair Target: " + crosshairText, "^7Crosshair Target: Monitoring");
 }
 
 menuGetClosestCrosshairPlayer(watchedPlayer)
@@ -2977,7 +3757,8 @@ menuToggleUfo(input)
     self allowSpectateTeam("freelook", true);
     self.sessionstate = "spectator";
     self setContents(0);
-    self iprintln("^2UFO Mode: ON ^7- press melee to exit.");
+    self menuShowNotification("UFO MODE", "Enabled - press melee to exit.", "success");
+    self notify("menu_ufo_monitor_stop");
     self thread menuWatchUfoExit();
 }
 
@@ -3009,12 +3790,14 @@ menuExitUfo()
         self switchToWeapon(self.menuUfoWeapon);
     }
 
-    self iprintln("^1UFO Mode: OFF");
+    self menuShowNotification("UFO MODE", "Disabled.", "info");
+    self notify("menu_ufo_monitor_stop");
 }
 
 menuWatchUfoExit()
 {
     self endon("disconnect");
+    self endon("menu_ufo_monitor_stop");
 
     while(self MeleeButtonPressed())
     {
@@ -3056,7 +3839,8 @@ menuToggleHide(input)
     self maps\mp\gametypes\menu::closeBaseMenu();
     self hide();
     self setContents(0);
-    self iprintln("^2Hidden. ^7Press melee to return.");
+    self menuShowNotification("HIDDEN", "Press melee to return.", "warning");
+    self notify("menu_hide_monitor_stop");
     self thread menuWatchHideExit();
 }
 
@@ -3071,12 +3855,14 @@ menuDisableHide()
     self show();
     self setContents(100);
 
-    self iprintln("^3Visible again.");
+    self menuShowNotification("VISIBILITY", "Visible again.", "success");
+    self notify("menu_hide_monitor_stop");
 }
 
 menuWatchHideExit()
 {
     self endon("disconnect");
+    self endon("menu_hide_monitor_stop");
 
     while(self MeleeButtonPressed())
     {
@@ -3123,13 +3909,13 @@ menuShowBotWarfareStatus(input)
 {
     if(!menuIsBotWarfareInstalled())
     {
-        self iprintln("^1Bot Warfare is not detected on this server.");
+        self menuShowNotification("BOT WARFARE", "Not detected on this server.", "error");
         return;
     }
 
-    self iprintln("^3Bot Warfare: ^7" + menuDvarText("bots_main") + " ^3Fill: ^7" + menuDvarText("bots_manage_fill") + " ^3Mode: ^7" + menuDvarText("bots_manage_fill_mode"));
-    self iprintln("^3Skill: ^7" + menuDvarText("bots_skill") + " ^3Team: ^7" + menuDvarText("bots_team") + " ^3Chat: ^7" + menuDvarText("bots_main_chat"));
-    self iprintln("^3Obj: ^7" + menuDvarText("bots_play_obj") + " ^3Streaks: ^7" + menuDvarText("bots_play_killstreak") + " ^3Camp: ^7" + menuDvarText("bots_play_camp"));
+    self menuShowNotification("BOT WARFARE", "Main: " + menuDvarText("bots_main") + " | Fill: " + menuDvarText("bots_manage_fill") + " | Mode: " + menuDvarText("bots_manage_fill_mode"), "info");
+    self menuShowNotification("BOT SETUP", "Skill: " + menuDvarText("bots_skill") + " | Team: " + menuDvarText("bots_team") + " | Chat: " + menuDvarText("bots_main_chat"), "info");
+    self menuShowNotification("BOT BEHAVIOUR", "Obj: " + menuDvarText("bots_play_obj") + " | Streaks: " + menuDvarText("bots_play_killstreak") + " | Camp: " + menuDvarText("bots_play_camp"), "info");
 }
 
 menuDvarText(dvarName)
@@ -3147,7 +3933,107 @@ menuDvarText(dvarName)
 menuSetBotFill(amount)
 {
     Exec("bots_manage_fill " + amount + "; bots_manage_fill_watchplayers 1");
-    self iprintln("^2Bot fill set to ^7" + amount + " ^2and watch players enabled.");
+    self menuShowNotification("BOT WARFARE", "Fill set to " + amount + ".", "success");
+}
+
+/* Matches Bot Warfare's bot identity checks without requiring its scripts at compile time. */
+menuIsBotPlayer(player)
+{
+    if(!isDefined(player) || !isPlayer(player))
+    {
+        return false;
+    }
+
+    if(isDefined(player.pers["isBot"]) && player.pers["isBot"])
+    {
+        return true;
+    }
+    if(isDefined(player.pers["isBotWarfare"]) && player.pers["isBotWarfare"])
+    {
+        return true;
+    }
+
+    return isSubStr(player getGuid() + "", "bot");
+}
+
+menuBotIdentity(player)
+{
+    if(!isDefined(player))
+    {
+        return "unknown";
+    }
+
+    return player getGuid() + "";
+}
+
+/* Queues one additional bot without overwriting an existing Bot Warfare request. */
+menuSpawnBot(input)
+{
+    pending = getDvarInt("bots_manage_add");
+    if(pending < 0)
+    {
+        pending = 0;
+    }
+    if(pending >= 18)
+    {
+        self menuShowNotification("BOT WARFARE", "The bot spawn queue is full.", "warning");
+        return;
+    }
+
+    setDvar("bots_manage_add", pending + 1);
+    self menuShowNotification("BOT WARFARE", "One bot queued for spawning.", "success");
+}
+
+/* Maintains an exact bot-only ceiling from zero through eighteen. */
+menuSetBotCount(amount)
+{
+    count = int(amount);
+    if(count < 0)
+    {
+        count = 0;
+    }
+    else if(count > 18)
+    {
+        count = 18;
+    }
+
+    setDvar("bots_manage_fill_mode", "1");
+    setDvar("bots_manage_fill", "" + count);
+    setDvar("bots_manage_fill_kick", "1");
+    setDvar("bots_manage_fill_watchplayers", "1");
+    self menuShowNotification("BOT WARFARE", "Bot count set to " + count + ".", "success");
+}
+
+menuOpenBotKickConfirmation(input)
+{
+    self menuOpenConfirmation("CONFIRM BOT KICK", "confirm", ::menuKickBot, input, self.menu.current);
+}
+
+/* Revalidates both slot and bot GUID before removing the selected entity. */
+menuKickBot(input)
+{
+    parts = strTok(input, "|");
+    if(parts.size < 2 || !isDefined(level.players))
+    {
+        self menuShowNotification("BOT WARFARE", "That bot is no longer connected.", "error");
+        return;
+    }
+
+    slot = int(parts[0]);
+    identity = parts[1];
+    for(i = 0; i < level.players.size; i++)
+    {
+        bot = level.players[i];
+        if(isDefined(bot) && bot getEntityNumber() == slot && menuIsBotPlayer(bot) && menuBotIdentity(bot) == identity)
+        {
+            botName = menuGetPlayerName(bot);
+            kick(slot, "EXE_PLAYERKICKED");
+            self menuShowNotification("BOT WARFARE", botName + " was kicked.", "success");
+            return;
+        }
+    }
+
+    self menuShowNotification("BOT WARFARE", "That bot is no longer connected.", "error");
 }
 
 
@@ -3164,7 +4050,7 @@ setServerSetting(input)
 
     Exec("set " + dvar + " " + value);
 
-    self iPrintln("^2" + name + " set to ^7" + value);
+    self menuShowNotification("SERVER SETTING", name + " set to " + value + ".", "success");
 }
 
 /* Initializes and enforces optional weapon restriction settings. */
@@ -3181,19 +4067,19 @@ toggleWeaponRestriction(weapon)
     if(isDefined(level.disabledWeapons[weapon]))
     {
         level.disabledWeapons[weapon] = undefined;
-        self iPrintln("^2Enabled ^7" + weapon);
+        self menuShowNotification("WEAPON RESTRICTION", weapon + " enabled.", "success");
     }
     else
     {
         level.disabledWeapons[weapon] = true;
-        self iPrintln("^1Disabled ^7" + weapon);
+        self menuShowNotification("WEAPON RESTRICTION", weapon + " disabled.", "warning");
     }
 }
 
 resetWeaponRestrictions()
 {
     level.disabledWeapons = [];
-    self iPrintln("^2All weapon restrictions reset.");
+    self menuShowNotification("WEAPON RESTRICTIONS", "All restrictions reset.", "success");
 }
 
 monitorRestrictedWeapons()
@@ -3209,7 +4095,7 @@ monitorRestrictedWeapons()
         if(isDefined(level.disabledWeapons[weapon]))
         {
             self takeWeapon(weapon);
-            self iPrintln("^1That weapon is restricted.");
+            self menuShowNotification("WEAPON RESTRICTED", "That weapon is disabled on this server.", "warning");
         }
 
         wait 0.25;
@@ -3226,11 +4112,11 @@ toggleChatWithOthers()
     if(self.menu.otherschat) {
         self.menu.otherschat = false;
         Exec("set cg_chatWithOtherTeams 0");
-        self iprintln("^2Chat with others: ^7OFF");
+        self menuShowNotification("CHAT", "Chat with other teams disabled.", "info");
 
     } else {
         self.menu.otherschat = true;
         Exec("set cg_chatWithOtherTeams 1");
-        self iprintln("^2Chat with others: ^7ON");
+        self menuShowNotification("CHAT", "Chat with other teams enabled.", "success");
     }
 }
