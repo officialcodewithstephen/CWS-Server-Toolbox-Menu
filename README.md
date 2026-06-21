@@ -77,7 +77,9 @@ Managed IW4/IW4x server paths are refreshed every five seconds. The plugin reads
 
 After an update, restart IW4MAdmin to load the new plugin and rotate or restart each IW4x server map to load the new IWD. Update checks and automatic installation can be changed in `CWSAdminMenuSettings.json`.
 
-Administrators can view the current version, latest release, What's New, fixes, and restart status from **Admin > CWS Admin Menu** in Webfront. Its **Configuration** tab lists every resolved server `userraw` folder and the active updater settings.
+Administrators can view the current version, latest release, What's New, fixes, and restart status from **Admin > CWS Admin Menu** in Webfront. Release notes support Markdown formatting. The **Configuration** tab lists each resolved server root and its full `z_cws_admin.iwd` destination.
+
+Select **Webhook** beside the update-status badge to configure a Discord webhook. When a newer release is detected, the plugin sends one Discord embed containing the version, What's New, and Fixes. The notified version is persisted, so repeated update checks do not post duplicates. Save an empty webhook value to disable notifications.
 
 When publishing a GitHub release, use a version tag such as `v0.20.0`. The included release workflow validates and attaches `CWS.AdminMenu.IW4MAdmin.Plugin.dll` and `z_cws_admin.iwd`; these are the assets consumed by the updater. Put user-facing changes under `## What's New` and corrections under `## Fixes` in the release notes so the Webfront tabs can separate them.
 
@@ -87,7 +89,7 @@ The menu uses server-side GSC, IW4MAdmin events, DVARs, and RCON. It does not sc
 
 ## Version
 
-`0.20.3`
+`0.20.4`
 
 ## Third-Party Code
 
