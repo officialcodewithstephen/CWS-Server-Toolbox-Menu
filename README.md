@@ -5,7 +5,7 @@ Ready-to-install IW4x GSC administration menu with automatic IW4MAdmin role acce
 ## Requirements
 
 - IW4x dedicated server
-- IW4MAdmin 2026.3 or newer
+- IW4MAdmin 2026.2.4.1 or newer
 - Moderator, Administrator, and Owner levels configured in IW4MAdmin
 - Dragnet installed in IW4MAdmin only when using the Dragnet menus
 
@@ -89,7 +89,7 @@ The menu uses server-side GSC, IW4MAdmin events, DVARs, and RCON. It does not sc
 
 ## Version
 
-`0.20.5`
+`0.20.6`
 
 ## Third-Party Code
 
