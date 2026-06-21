@@ -13,10 +13,11 @@ Ready-to-install IW4x GSC administration menu with automatic IW4MAdmin role acce
 
 1. Stop the IW4x server and IW4MAdmin.
 2. Remove any legacy `_mapvote.gsc` installation, including `userraw/scripts/_mapvote.gsc`. Running both voting systems can create duplicate menus and script errors.
-3. Copy `IW4MAdmin/Plugins/CWS.AdminMenu.IW4MAdmin.Plugin.dll` into the `Plugins` directory of your IW4MAdmin installation.
-4. Merge the repository's `userraw` directory into the IW4x server's `userraw` directory.
-5. Start IW4MAdmin.
-6. Start the IW4x server or rotate/restart the current map.
+3. Remove loose files from an older CWS installation: `userraw/scripts/menu_loader.gsc` and the CWS `menu.gsc`, `menu_functions.gsc`, and `mapvote.gsc` files under `userraw/maps/mp/gametypes`.
+4. Copy `IW4MAdmin/Plugins/CWS.AdminMenu.IW4MAdmin.Plugin.dll` into the `Plugins` directory of your IW4MAdmin installation.
+5. Copy `userraw/z_cws_admin.iwd` into every IW4x server's `userraw` directory.
+6. Start IW4MAdmin.
+7. Start the IW4x server or rotate/restart the current map.
 
 The resulting server layout should contain:
 
@@ -26,15 +27,10 @@ IW4MAdmin/
     └── CWS.AdminMenu.IW4MAdmin.Plugin.dll
 
 userraw/
-├── scripts/
-│   └── menu_loader.gsc
-└── maps/
-    └── mp/
-        └── gametypes/
-            ├── menu.gsc
-            ├── menu_functions.gsc
-            └── mapvote.gsc
+└── z_cws_admin.iwd
 ```
+
+The IWD contains `scripts/menu_loader.gsc` and the `maps/mp/gametypes` menu scripts. Do not extract it.
 
 ## Access
 
@@ -73,13 +69,25 @@ Existing configurations remain compatible through these DVARs:
 
 If every configured entry resolves to one map, the map stays fixed and players vote between the configured gametypes. Missing DVARs receive safe defaults automatically.
 
+## Automatic Updates
+
+The IW4MAdmin plugin checks the repository's latest GitHub release every five minutes. When a newer release is available, it validates and installs the plugin DLL and `z_cws_admin.iwd` from the official release assets.
+
+All managed servers are discovered through IW4MAdmin. Their working directory, game-log path, and manually configured log path are used to resolve each `userraw` directory, including layouts such as `/game/userraw/logs`. Existing DLL and IWD files are backed up before replacement. Legacy loose CWS scripts are also backed up and removed so they cannot override the updated IWD.
+
+After an update, restart IW4MAdmin to load the new plugin and rotate or restart each IW4x server map to load the new IWD. Update checks and automatic installation can be changed in `CWSAdminMenuSettings.json`.
+
+Administrators can view the current version, latest release, discovered server installs, What's New, fixes, and restart status from **Admin > CWS Admin Menu** in Webfront.
+
+When publishing a GitHub release, use a version tag such as `v0.20.0`. The included release workflow validates and attaches `CWS.AdminMenu.IW4MAdmin.Plugin.dll` and `z_cws_admin.iwd`; these are the assets consumed by the updater. Put user-facing changes under `## What's New` and corrections under `## Fixes` in the release notes so the Webfront tabs can separate them.
+
 ## Safety
 
 The menu uses server-side GSC, IW4MAdmin events, DVARs, and RCON. It does not scan player computers, inject into clients, or read client memory.
 
 ## Version
 
-`0.19.0`
+`0.20.0`
 
 ## Third-Party Code
 
