@@ -13,7 +13,7 @@ Ready-to-install IW4x GSC administration menu with automatic IW4MAdmin role acce
 
 1. Stop the IW4x server and IW4MAdmin.
 2. Remove any legacy `_mapvote.gsc` installation, including `userraw/scripts/_mapvote.gsc`. Running both voting systems can create duplicate menus and script errors.
-3. Remove loose files from an older CWS installation: `userraw/scripts/menu_loader.gsc` and the CWS `menu.gsc`, `menu_functions.gsc`, and `mapvote.gsc` files under `userraw/maps/mp/gametypes`.
+3. Remove loose files from an older CWS installation: `userraw/scripts/menu_loader.gsc` and the CWS `menu.gsc`, `menu_functions.gsc`, and `mapvote.gsc` files under either `userraw/maps/mp/gametype` or `userraw/maps/mp/gametypes`.
 4. Copy `IW4MAdmin/Plugins/CWS.AdminMenu.IW4MAdmin.Plugin.dll` into the `Plugins` directory of your IW4MAdmin installation.
 5. Copy `userraw/z_cws_admin.iwd` into every IW4x server's `userraw` directory.
 6. Start IW4MAdmin.
@@ -77,7 +77,7 @@ All managed servers are discovered through IW4MAdmin. Their working directory, g
 
 After an update, restart IW4MAdmin to load the new plugin and rotate or restart each IW4x server map to load the new IWD. Update checks and automatic installation can be changed in `CWSAdminMenuSettings.json`.
 
-Administrators can view the current version, latest release, discovered server installs, What's New, fixes, and restart status from **Admin > CWS Admin Menu** in Webfront.
+Administrators can view the current version, latest release, What's New, fixes, and restart status from **Admin > CWS Admin Menu** in Webfront. Its **Configuration** tab lists every resolved server `userraw` folder and the active updater settings.
 
 When publishing a GitHub release, use a version tag such as `v0.20.0`. The included release workflow validates and attaches `CWS.AdminMenu.IW4MAdmin.Plugin.dll` and `z_cws_admin.iwd`; these are the assets consumed by the updater. Put user-facing changes under `## What's New` and corrections under `## Fixes` in the release notes so the Webfront tabs can separate them.
 
