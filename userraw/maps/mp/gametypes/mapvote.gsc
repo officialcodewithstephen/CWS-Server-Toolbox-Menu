@@ -179,7 +179,29 @@ mapVoteBuildMapOptions()
     choices = [];
     for(i = 0; i < options.size; i++)
     {
-        choices[i] = options[i] + "|" + modes[i % modes.size];
+        choices[choices.size] = options[i] + "|" + modes[i % modes.size];
+    }
+
+    /* Fill the requested count with additional unique map/mode pairings. */
+    modeOffset = 1;
+    while(choices.size < optionCount && modeOffset < modes.size)
+    {
+        added = false;
+        for(i = 0; i < options.size && choices.size < optionCount; i++)
+        {
+            choice = options[i] + "|" + modes[(i + modeOffset) % modes.size];
+            if(!mapVoteArrayContains(choices, choice))
+            {
+                choices[choices.size] = choice;
+                added = true;
+            }
+        }
+
+        if(!added)
+        {
+            break;
+        }
+        modeOffset++;
     }
     return choices;
 }

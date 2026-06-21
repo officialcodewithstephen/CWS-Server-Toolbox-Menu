@@ -3418,12 +3418,13 @@ menuGetBindToken(bind)
         case "smoke": return "{+smoke}";
         case "use": return "{+activate}";
         case "melee": return "{+melee}";
-        case "ads_melee": return "{+speed_throw}+{+melee}";
-        case "ads_use": return "{+speed_throw}+{+activate}";
-        case "ads_frag": return "{+speed_throw}+{+frag}";
-        case "ads_smoke": return "{+speed_throw}+{+smoke}";
-        case "use_melee": return "{+activate}+{+melee}";
-        case "attack_melee": return "{+attack}+{+melee}";
+        /* Callers add the outer brackets; split compound tokens for IW4x. */
+        case "ads_melee": return "{+speed_throw}] + [{+melee}";
+        case "ads_use": return "{+speed_throw}] + [{+activate}";
+        case "ads_frag": return "{+speed_throw}] + [{+frag}";
+        case "ads_smoke": return "{+speed_throw}] + [{+smoke}";
+        case "use_melee": return "{+activate}] + [{+melee}";
+        case "attack_melee": return "{+attack}] + [{+melee}";
         case "dpad_up": return "{+actionslot 1}";
         case "dpad_down": return "{+actionslot 2}";
         case "dpad_left": return "{+actionslot 3}";
