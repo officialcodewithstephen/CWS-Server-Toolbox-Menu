@@ -47,6 +47,7 @@ The default open bind is shown in game. Personal binds and visual settings are p
 - Dynamic installed-map discovery, including custom maps
 - Server settings, presets, Bot Warfare controls, and map rotation tools
 - Themed end-of-match map voting with live voters, configurable timer, and 2-15 choices
+- Friendly map names for stock, ported, and long-layout map-vote choices
 - Single-map/24-7 support that turns configured gametypes into voting choices
 - Vote and changed-vote notifications for all connected human players
 - Delayed restart, rotation, announcements, maintenance, and lockdown events
@@ -89,7 +90,7 @@ The menu uses server-side GSC, IW4MAdmin events, DVARs, and RCON. It does not sc
 
 ## Version
 
-`0.20.7`
+`0.20.8`
 
 ## Third-Party Code
 
