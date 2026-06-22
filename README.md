@@ -48,8 +48,9 @@ The default open bind is shown in game. Personal binds and visual settings are p
 - Server settings, presets, Bot Warfare controls, and map rotation tools
 - Themed end-of-match map voting with live voters, configurable timer, and 2-15 choices
 - Friendly map names for stock, ported, and long-layout map-vote choices
+- Optional randomized Score, Time, Jump, Speed, Gravity, and Unlimited Ammo vote attributes
 - Single-map/24-7 support that turns configured gametypes into voting choices
-- Vote and changed-vote notifications for all connected human players
+- Live voter names and counts without per-vote notification spam
 - Delayed restart, rotation, announcements, maintenance, and lockdown events
 - Custom themes, colors, fonts, shaders, animations, opacity, position, and binds
 - Review and confirmation screens for destructive operations
@@ -67,8 +68,10 @@ Existing configurations remain compatible through these DVARs:
 - `mapvote_map_timer`
 - `mapvote_gamemode_timer` (retained for configuration compatibility)
 - `mapvote_optionsCount` (2-15 choices)
+- `mapvote_custom_attributes_enabled` (disabled by default)
+- `mapvote_attribute_score_enabled`, `mapvote_attribute_time_enabled`, `mapvote_attribute_jump_enabled`, `mapvote_attribute_speed_enabled`, `mapvote_attribute_gravity_enabled`, and `mapvote_attribute_unlimited_ammo_enabled`
 
-If every configured entry resolves to one map, the map stays fixed and players vote between the configured gametypes. Missing DVARs receive safe defaults automatically.
+If every configured entry resolves to one map, the map stays fixed and players vote between the configured gametypes. Custom choices receive zero to two enabled attributes, always leave at least one normal choice, and apply their values after the next map initializes. Missing DVARs receive safe defaults automatically.
 
 ## Automatic Updates
 
@@ -76,7 +79,9 @@ The IW4MAdmin plugin checks the repository's latest GitHub release every five mi
 
 Managed IW4/IW4x server paths are refreshed every five seconds. The plugin reads `Configuration/IW4MAdminSettings.json` and accepts server entries only when both `EventParserVersion` and `RConParserVersion` identify the `IW4x Parser`. It resolves `userraw` from `ManualLogPath` or `WorkingDirectory`, including layouts such as `/game/userraw/logs`. Runtime path candidates additionally require an IW4x executable in the parent folder. Every accepted `userraw` must contain no executable files itself. This rejects COD4x, IW4MAdmin, and unrelated game folders. The latest release's `z_cws_admin.iwd` is installed directly into every validated IW4 `userraw` folder. Existing DLL and IWD files are backed up before replacement. Legacy loose CWS scripts are also backed up and removed so they cannot override the updated IWD.
 
-After an update, restart IW4MAdmin to load the new plugin and rotate or restart each IW4x server map to load the new IWD. Update checks and automatic installation can be changed in `CWSAdminMenuSettings.json`.
+After an update, the plugin waits ten seconds and exits IW4MAdmin with code `75` so a detected systemd or Docker/Portainer supervisor can restart it. IW4x servers are not restarted or rotated; they load the new IWD during normal map rotation. Automatic restart is enabled by default and can be configured with `AutoRestartAfterUpdate`, `AutoRestartDelay`, and `AutoRestartExitCode` in `CWSAdminMenuSettings.json`.
+
+For systemd, configure `Restart=on-failure` or `Restart=always`. For Docker Compose or Portainer stacks, configure `restart: unless-stopped` or `restart: always`. If no supported supervisor is detected, IW4MAdmin remains running and the plugin logs that a manual restart is required.
 
 Administrators can view the current version, latest release, What's New, fixes, and restart status from **Admin > CWS Admin Menu** in Webfront. Release notes support Markdown formatting. The **Configuration** tab lists each resolved server root and its full `z_cws_admin.iwd` destination.
 
@@ -90,7 +95,7 @@ The menu uses server-side GSC, IW4MAdmin events, DVARs, and RCON. It does not sc
 
 ## Version
 
-`0.20.8`
+`0.20.9`
 
 ## Third-Party Code
 
